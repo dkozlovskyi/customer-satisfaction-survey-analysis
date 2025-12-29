@@ -1,0 +1,10 @@
+# Customer Satisfaction Survey Analysis Tool
+# This tool uses only Python standard library - no external dependencies required!
+#
+# Python 3.7+ is required
+#
+# To verify your Python version:
+#   python --version
+#
+# No installation needed - just run:
+#   python survey_analyzer.py

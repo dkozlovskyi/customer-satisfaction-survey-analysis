@@ -1,0 +1,878 @@
+#!/usr/bin/env python3
+"""
+Customer Satisfaction Survey Analysis Tool
+
+Analyzes survey responses across multiple years, links with company metadata,
+calculates year-over-year deltas, and generates aggregated insights.
+
+Usage:
+    python survey_analyzer.py [--input INPUT_DIR] [--output OUTPUT_DIR]
+"""
+
+import argparse
+import csv
+import os
+import re
+import sys
+from collections import defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
+import statistics
+
+
+@dataclass
+class Question:
+    """Represents a survey question from metadata"""
+    short_form: str
+    introduced: int
+    survey_type: str
+    question_group: str
+    original_question: str
+
+
+@dataclass
+class Company:
+    """Represents a company from metadata"""
+    domain: str
+    company: str
+    services: str = ""
+    revenue_share: str = ""
+    region: str = ""
+    first_interaction_date: str = ""
+    tenure_months: str = ""
+    tenure_years: str = ""
+    collaboration_type: str = ""
+    continuous_collaboration: str = ""
+    engagement_source: str = ""
+    notes: str = ""
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, str]) -> 'Company':
+        """Create Company from CSV row dict"""
+        return cls(
+            domain=data.get('Domain', '').strip().lower(),
+            company=data.get('Company', '').strip(),
+            services=data.get('Services', '').strip(),
+            revenue_share=data.get('Revenue share', '').strip(),
+            region=data.get('Region', '').strip(),
+            first_interaction_date=data.get('First Interaction Date', '').strip(),
+            tenure_months=data.get('Tenure (mo.)', '').strip(),
+            tenure_years=data.get('Tenure (years)', '').strip(),
+            collaboration_type=data.get('Collaboration Type', '').strip(),
+            continuous_collaboration=data.get('Continious collaboration', '').strip(),
+            engagement_source=data.get('Engagement Source', '').strip(),
+            notes=data.get('Notes', '').strip()
+        )
+
+
+@dataclass
+class Response:
+    """Represents a single survey response (wide format)"""
+    year: int
+    record_id: str
+    email: str
+    first_name: str
+    last_name: str
+    date: str
+    survey_type: str
+    answers: Dict[str, str]  # question -> answer mapping
+
+
+@dataclass
+class NormalizedResponse:
+    """Represents a normalized response in long format"""
+    year: int
+    record_id: str
+    email: str
+    first_name: str
+    last_name: str
+    respondent_domain: str
+    account_domain: str
+    company_name: str
+    region: str
+    tenure_years: str
+    survey_type: str
+    question_short_form: str
+    question_group: str
+    original_question: str
+    answer_raw: str
+    answer_numeric: Optional[float] = None
+    is_numeric: bool = False
+
+
+@dataclass
+class Stats:
+    """Statistical measures for a group of numeric values"""
+    count: int = 0
+    mean: float = 0.0
+    median: float = 0.0
+    std_dev: float = 0.0
+    min_val: float = 0.0
+    max_val: float = 0.0
+
+
+class SurveyAnalyzer:
+    """Main analyzer class"""
+
+    def __init__(self, input_dir: str, output_dir: str):
+        self.input_dir = Path(input_dir)
+        self.output_dir = Path(output_dir)
+
+        # Data containers
+        self.questions: Dict[str, Question] = {}
+        self.companies: Dict[str, Company] = {}  # domain -> Company
+        self.responses: List[Response] = []
+        self.normalized_responses: List[NormalizedResponse] = []
+
+        # Tracking
+        self.unmatched_domains: Set[str] = set()
+        self.unknown_questions: Set[str] = set()
+
+        # Statistics
+        self.stats = {
+            'rows_read': 0,
+            'matched_companies': 0,
+            'unmatched_domains': 0,
+            'numeric_answers': 0,
+            'text_answers': 0
+        }
+
+    def validate_structure(self) -> None:
+        """Validate input folder structure and required files"""
+        print("Validating input folder structure...")
+
+        # Check main directories
+        required_dirs = [
+            self.input_dir / 'meta',
+            self.input_dir / 'responses' / 'previous',
+            self.input_dir / 'responses' / 'current'
+        ]
+
+        for dir_path in required_dirs:
+            if not dir_path.exists():
+                raise FileNotFoundError(f"Required directory not found: {dir_path}")
+            print(f"  ✓ Found: {dir_path}")
+
+        # Check required files
+        required_files = [
+            self.input_dir / 'meta' / 'questions.csv',
+            self.input_dir / 'meta' / 'companies.csv'
+        ]
+
+        for file_path in required_files:
+            if not file_path.exists():
+                raise FileNotFoundError(f"Required file not found: {file_path}")
+            print(f"  ✓ Found: {file_path}")
+
+        # Check for response files
+        prev_files = list((self.input_dir / 'responses' / 'previous').glob('*.csv'))
+        curr_files = list((self.input_dir / 'responses' / 'current').glob('*.csv'))
+
+        if not prev_files:
+            raise FileNotFoundError("No CSV files found in input/responses/previous/")
+        if not curr_files:
+            raise FileNotFoundError("No CSV files found in input/responses/current/")
+
+        print(f"  ✓ Found {len(prev_files)} previous response file(s)")
+        print(f"  ✓ Found {len(curr_files)} current response file(s)")
+
+        print("✓ Folder structure validated successfully\n")
+
+    def load_questions(self) -> None:
+        """Load question metadata"""
+        print("Loading question metadata...")
+        file_path = self.input_dir / 'meta' / 'questions.csv'
+
+        with open(file_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                question = Question(
+                    short_form=row['Short Form'].strip(),
+                    introduced=int(row['Introduced']),
+                    survey_type=row['Survey Type'].strip(),
+                    question_group=row['Question Group'].strip(),
+                    original_question=row['Original Question'].strip()
+                )
+                self.questions[question.short_form] = question
+
+        print(f"  ✓ Loaded {len(self.questions)} questions\n")
+
+    def load_companies(self) -> None:
+        """Load company metadata"""
+        print("Loading company metadata...")
+        file_path = self.input_dir / 'meta' / 'companies.csv'
+
+        with open(file_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                company = Company.from_dict(row)
+                if company.domain:
+                    self.companies[company.domain] = company
+
+        print(f"  ✓ Loaded {len(self.companies)} companies\n")
+
+    def extract_year_from_filename(self, filename: str) -> int:
+        """Extract year from filename like 'Responses_2024.csv'"""
+        match = re.search(r'(\d{4})', filename)
+        if match:
+            return int(match.group(1))
+        raise ValueError(f"Could not extract year from filename: {filename}")
+
+    def load_responses(self) -> None:
+        """Load all response files"""
+        print("Loading survey responses...")
+
+        # Load previous year responses
+        prev_dir = self.input_dir / 'responses' / 'previous'
+        for file_path in prev_dir.glob('*.csv'):
+            year = self.extract_year_from_filename(file_path.name)
+            self._load_response_file(file_path, year)
+
+        # Load current year responses
+        curr_dir = self.input_dir / 'responses' / 'current'
+        for file_path in curr_dir.glob('*.csv'):
+            year = self.extract_year_from_filename(file_path.name)
+            self._load_response_file(file_path, year)
+
+        self.stats['rows_read'] = len(self.responses)
+        print(f"  ✓ Loaded {len(self.responses)} total responses\n")
+
+    def _load_response_file(self, file_path: Path, year: int) -> None:
+        """Load a single response file"""
+        print(f"  Loading {file_path.name} (year: {year})...")
+
+        with open(file_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+
+            # Identify question columns (exclude standard columns)
+            standard_cols = {
+                'Record ID', 'Email', 'Contact first name', 'Contact last name',
+                'Date', 'Survey Type'
+            }
+
+            for row in reader:
+                # Extract standard fields
+                response = Response(
+                    year=year,
+                    record_id=row.get('Record ID', '').strip(),
+                    email=row.get('Email', '').strip(),
+                    first_name=row.get('Contact first name', '').strip(),
+                    last_name=row.get('Contact last name', '').strip(),
+                    date=row.get('Date', '').strip(),
+                    survey_type=row.get('Survey Type', '').strip(),
+                    answers={}
+                )
+
+                # Extract question answers
+                for col, value in row.items():
+                    if col not in standard_cols and value.strip():
+                        response.answers[col] = value.strip()
+
+                self.responses.append(response)
+
+    def extract_domain(self, email: str) -> str:
+        """Extract domain from email address"""
+        if '@' in email:
+            return email.split('@')[1].strip().lower()
+        return ''
+
+    def normalize_responses(self) -> None:
+        """Convert responses from wide to long format and link with companies"""
+        print("Normalizing responses and linking with companies...")
+
+        matched = 0
+        unmatched = 0
+
+        for response in self.responses:
+            respondent_domain = self.extract_domain(response.email)
+
+            # Try to match with company
+            company = self.companies.get(respondent_domain)
+
+            if company:
+                account_domain = company.domain
+                company_name = company.company
+                region = company.region
+                tenure_years = company.tenure_years
+                matched += 1
+            else:
+                account_domain = ''
+                company_name = ''
+                region = ''
+                tenure_years = ''
+                if respondent_domain:
+                    self.unmatched_domains.add(respondent_domain)
+                    unmatched += 1
+
+            # Create normalized response for each answer
+            for question_short_form, answer_raw in response.answers.items():
+                # Get question metadata
+                question = self.questions.get(question_short_form)
+
+                if not question:
+                    self.unknown_questions.add(question_short_form)
+                    question_group = 'Unknown'
+                    original_question = question_short_form
+                else:
+                    question_group = question.question_group
+                    original_question = question.original_question
+
+                # Try to parse as numeric
+                is_numeric = False
+                answer_numeric = None
+                try:
+                    answer_numeric = float(answer_raw)
+                    is_numeric = True
+                    self.stats['numeric_answers'] += 1
+                except ValueError:
+                    self.stats['text_answers'] += 1
+
+                normalized = NormalizedResponse(
+                    year=response.year,
+                    record_id=response.record_id,
+                    email=response.email,
+                    first_name=response.first_name,
+                    last_name=response.last_name,
+                    respondent_domain=respondent_domain,
+                    account_domain=account_domain,
+                    company_name=company_name,
+                    region=region,
+                    tenure_years=tenure_years,
+                    survey_type=response.survey_type,
+                    question_short_form=question_short_form,
+                    question_group=question_group,
+                    original_question=original_question,
+                    answer_raw=answer_raw,
+                    answer_numeric=answer_numeric,
+                    is_numeric=is_numeric
+                )
+
+                self.normalized_responses.append(normalized)
+
+        self.stats['matched_companies'] = matched
+        self.stats['unmatched_domains'] = unmatched
+
+        print(f"  ✓ Created {len(self.normalized_responses)} normalized records")
+        print(f"  ✓ Matched {matched} responses to companies")
+        print(f"  ✓ {unmatched} responses without company match\n")
+
+    def calculate_stats(self, values: List[float]) -> Stats:
+        """Calculate statistical measures for a list of values"""
+        if not values:
+            return Stats()
+
+        return Stats(
+            count=len(values),
+            mean=statistics.mean(values),
+            median=statistics.median(values),
+            std_dev=statistics.stdev(values) if len(values) > 1 else 0.0,
+            min_val=min(values),
+            max_val=max(values)
+        )
+
+    def calculate_yoy_deltas(self) -> List[Dict]:
+        """Calculate year-over-year deltas at respondent/question level"""
+        print("Calculating year-over-year deltas...")
+
+        # Group responses by email + question
+        response_map = defaultdict(dict)  # (email, question) -> {year: answer_numeric}
+
+        for resp in self.normalized_responses:
+            if resp.is_numeric and resp.answer_numeric is not None:
+                key = (resp.email, resp.question_short_form)
+                response_map[key][resp.year] = resp.answer_numeric
+
+        # Calculate deltas
+        deltas = []
+        years = sorted(set(r.year for r in self.normalized_responses))
+
+        if len(years) >= 2:
+            prev_year = years[0]
+            curr_year = years[1]
+
+            for (email, question), year_answers in response_map.items():
+                if prev_year in year_answers and curr_year in year_answers:
+                    prev_val = year_answers[prev_year]
+                    curr_val = year_answers[curr_year]
+                    delta = curr_val - prev_val
+
+                    # Find corresponding normalized response for metadata
+                    curr_resp = next(
+                        (r for r in self.normalized_responses
+                         if r.email == email and r.question_short_form == question and r.year == curr_year),
+                        None
+                    )
+
+                    if curr_resp:
+                        deltas.append({
+                            'email': email,
+                            'company_name': curr_resp.company_name,
+                            'question_short_form': question,
+                            'question_group': curr_resp.question_group,
+                            'previous_year': prev_year,
+                            'previous_value': prev_val,
+                            'current_year': curr_year,
+                            'current_value': curr_val,
+                            'delta': delta,
+                            'delta_pct': (delta / prev_val * 100) if prev_val != 0 else 0
+                        })
+
+        print(f"  ✓ Calculated {len(deltas)} year-over-year deltas\n")
+        return deltas
+
+    def aggregate_by_question(self) -> List[Dict]:
+        """Aggregate responses by question and year"""
+        print("Aggregating by question...")
+
+        # Group by year and question
+        groups = defaultdict(list)
+
+        for resp in self.normalized_responses:
+            if resp.is_numeric and resp.answer_numeric is not None:
+                key = (resp.year, resp.question_short_form, resp.question_group)
+                groups[key].append(resp.answer_numeric)
+
+        # Calculate aggregates
+        aggregates = []
+        for (year, question, group), values in groups.items():
+            stats = self.calculate_stats(values)
+            aggregates.append({
+                'year': year,
+                'question_short_form': question,
+                'question_group': group,
+                'response_count': stats.count,
+                'mean': round(stats.mean, 2),
+                'median': round(stats.median, 2),
+                'std_dev': round(stats.std_dev, 2),
+                'min': stats.min_val,
+                'max': stats.max_val
+            })
+
+        print(f"  ✓ Created {len(aggregates)} question aggregates\n")
+        return sorted(aggregates, key=lambda x: (x['year'], x['question_short_form']))
+
+    def aggregate_by_question_group(self) -> List[Dict]:
+        """Aggregate responses by question group and year"""
+        print("Aggregating by question group...")
+
+        # Group by year and question group
+        groups = defaultdict(list)
+
+        for resp in self.normalized_responses:
+            if resp.is_numeric and resp.answer_numeric is not None:
+                key = (resp.year, resp.question_group)
+                groups[key].append(resp.answer_numeric)
+
+        # Calculate aggregates
+        aggregates = []
+        for (year, group), values in groups.items():
+            stats = self.calculate_stats(values)
+            aggregates.append({
+                'year': year,
+                'question_group': group,
+                'response_count': stats.count,
+                'mean': round(stats.mean, 2),
+                'median': round(stats.median, 2),
+                'std_dev': round(stats.std_dev, 2),
+                'min': stats.min_val,
+                'max': stats.max_val
+            })
+
+        print(f"  ✓ Created {len(aggregates)} question group aggregates\n")
+        return sorted(aggregates, key=lambda x: (x['year'], x['question_group']))
+
+    def aggregate_by_segment(self) -> List[Dict]:
+        """Aggregate responses by segment (region, tenure) and year"""
+        print("Aggregating by segment...")
+
+        aggregates = []
+
+        # By Region
+        groups = defaultdict(list)
+        for resp in self.normalized_responses:
+            if resp.is_numeric and resp.answer_numeric is not None and resp.region:
+                key = (resp.year, 'Region', resp.region, resp.question_short_form)
+                groups[key].append(resp.answer_numeric)
+
+        for (year, segment_type, segment_value, question), values in groups.items():
+            stats = self.calculate_stats(values)
+            aggregates.append({
+                'year': year,
+                'segment_type': segment_type,
+                'segment_value': segment_value,
+                'question_short_form': question,
+                'response_count': stats.count,
+                'mean': round(stats.mean, 2),
+                'median': round(stats.median, 2)
+            })
+
+        # By Survey Type
+        groups = defaultdict(list)
+        for resp in self.normalized_responses:
+            if resp.is_numeric and resp.answer_numeric is not None:
+                key = (resp.year, 'Survey Type', resp.survey_type, resp.question_short_form)
+                groups[key].append(resp.answer_numeric)
+
+        for (year, segment_type, segment_value, question), values in groups.items():
+            stats = self.calculate_stats(values)
+            aggregates.append({
+                'year': year,
+                'segment_type': segment_type,
+                'segment_value': segment_value,
+                'question_short_form': question,
+                'response_count': stats.count,
+                'mean': round(stats.mean, 2),
+                'median': round(stats.median, 2)
+            })
+
+        print(f"  ✓ Created {len(aggregates)} segment aggregates\n")
+        return sorted(aggregates, key=lambda x: (x['year'], x['segment_type'], x['segment_value']))
+
+    def calculate_correlations(self) -> List[Dict]:
+        """Calculate correlations between numeric questions"""
+        print("Calculating correlations...")
+
+        correlations = []
+
+        # Get all numeric questions
+        numeric_questions = set(
+            r.question_short_form for r in self.normalized_responses if r.is_numeric
+        )
+
+        for year in set(r.year for r in self.normalized_responses):
+            # Build response matrix: email -> {question: value}
+            response_matrix = defaultdict(dict)
+
+            for resp in self.normalized_responses:
+                if resp.year == year and resp.is_numeric and resp.answer_numeric is not None:
+                    response_matrix[resp.email][resp.question_short_form] = resp.answer_numeric
+
+            # Calculate pairwise correlations
+            question_list = sorted(numeric_questions)
+
+            for i, q1 in enumerate(question_list):
+                for q2 in question_list[i+1:]:
+                    # Get paired values
+                    pairs = []
+                    for email, answers in response_matrix.items():
+                        if q1 in answers and q2 in answers:
+                            pairs.append((answers[q1], answers[q2]))
+
+                    if len(pairs) >= 3:  # Need at least 3 pairs for meaningful correlation
+                        values1 = [p[0] for p in pairs]
+                        values2 = [p[1] for p in pairs]
+
+                        # Calculate Pearson correlation
+                        corr = self.pearson_correlation(values1, values2)
+
+                        if corr is not None:
+                            correlations.append({
+                                'year': year,
+                                'question_1': q1,
+                                'question_2': q2,
+                                'correlation': round(corr, 3),
+                                'n_pairs': len(pairs),
+                                'interpretation': self.interpret_correlation(corr)
+                            })
+
+        print(f"  ✓ Calculated {len(correlations)} correlations\n")
+        return sorted(correlations, key=lambda x: (x['year'], abs(x['correlation'])), reverse=True)
+
+    def pearson_correlation(self, x: List[float], y: List[float]) -> Optional[float]:
+        """Calculate Pearson correlation coefficient"""
+        if len(x) != len(y) or len(x) < 2:
+            return None
+
+        n = len(x)
+        mean_x = statistics.mean(x)
+        mean_y = statistics.mean(y)
+
+        numerator = sum((x[i] - mean_x) * (y[i] - mean_y) for i in range(n))
+
+        std_x = statistics.stdev(x) if len(x) > 1 else 0
+        std_y = statistics.stdev(y) if len(y) > 1 else 0
+
+        if std_x == 0 or std_y == 0:
+            return None
+
+        denominator = std_x * std_y * n
+
+        if denominator == 0:
+            return None
+
+        return numerator / denominator
+
+    def interpret_correlation(self, corr: float) -> str:
+        """Interpret correlation strength"""
+        abs_corr = abs(corr)
+        if abs_corr >= 0.7:
+            return 'Strong'
+        elif abs_corr >= 0.4:
+            return 'Moderate'
+        elif abs_corr >= 0.2:
+            return 'Weak'
+        else:
+            return 'Very Weak'
+
+    def generate_outputs(self) -> None:
+        """Generate all output CSV files"""
+        print("Generating output files...")
+
+        # Create output directory
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # 1. Normalized responses
+        self._write_normalized_responses()
+
+        # 2. Year-over-year deltas
+        deltas = self.calculate_yoy_deltas()
+        self._write_yoy_deltas(deltas)
+
+        # 3. Question aggregates
+        question_aggs = self.aggregate_by_question()
+        self._write_question_aggregates(question_aggs)
+
+        # 4. Question group aggregates
+        group_aggs = self.aggregate_by_question_group()
+        self._write_question_group_aggregates(group_aggs)
+
+        # 5. Segment aggregates
+        segment_aggs = self.aggregate_by_segment()
+        self._write_segment_aggregates(segment_aggs)
+
+        # 6. Correlations
+        correlations = self.calculate_correlations()
+        self._write_correlations(correlations)
+
+        # 7. Unmatched domains
+        self._write_unmatched_domains()
+
+        # 8. Unknown questions
+        self._write_unknown_questions()
+
+        print(f"\n✓ All output files generated in: {self.output_dir}\n")
+
+    def _write_normalized_responses(self) -> None:
+        """Write normalized_responses.csv"""
+        file_path = self.output_dir / 'normalized_responses.csv'
+
+        with open(file_path, 'w', newline='', encoding='utf-8') as f:
+            fieldnames = [
+                'year', 'record_id', 'email', 'first_name', 'last_name',
+                'respondent_domain', 'account_domain', 'company_name', 'region',
+                'tenure_years', 'survey_type', 'question_short_form', 'question_group',
+                'original_question', 'answer_raw', 'answer_numeric', 'is_numeric'
+            ]
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+
+            for resp in self.normalized_responses:
+                writer.writerow({
+                    'year': resp.year,
+                    'record_id': resp.record_id,
+                    'email': resp.email,
+                    'first_name': resp.first_name,
+                    'last_name': resp.last_name,
+                    'respondent_domain': resp.respondent_domain,
+                    'account_domain': resp.account_domain,
+                    'company_name': resp.company_name,
+                    'region': resp.region,
+                    'tenure_years': resp.tenure_years,
+                    'survey_type': resp.survey_type,
+                    'question_short_form': resp.question_short_form,
+                    'question_group': resp.question_group,
+                    'original_question': resp.original_question,
+                    'answer_raw': resp.answer_raw,
+                    'answer_numeric': resp.answer_numeric if resp.is_numeric else '',
+                    'is_numeric': resp.is_numeric
+                })
+
+        print(f"  ✓ Wrote {file_path.name}")
+
+    def _write_yoy_deltas(self, deltas: List[Dict]) -> None:
+        """Write yoy_deltas.csv"""
+        file_path = self.output_dir / 'yoy_deltas.csv'
+
+        with open(file_path, 'w', newline='', encoding='utf-8') as f:
+            fieldnames = [
+                'email', 'company_name', 'question_short_form', 'question_group',
+                'previous_year', 'previous_value', 'current_year', 'current_value',
+                'delta', 'delta_pct'
+            ]
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(deltas)
+
+        print(f"  ✓ Wrote {file_path.name}")
+
+    def _write_question_aggregates(self, aggregates: List[Dict]) -> None:
+        """Write question_aggregates.csv"""
+        file_path = self.output_dir / 'question_aggregates.csv'
+
+        with open(file_path, 'w', newline='', encoding='utf-8') as f:
+            fieldnames = [
+                'year', 'question_short_form', 'question_group', 'response_count',
+                'mean', 'median', 'std_dev', 'min', 'max'
+            ]
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(aggregates)
+
+        print(f"  ✓ Wrote {file_path.name}")
+
+    def _write_question_group_aggregates(self, aggregates: List[Dict]) -> None:
+        """Write question_group_aggregates.csv"""
+        file_path = self.output_dir / 'question_group_aggregates.csv'
+
+        with open(file_path, 'w', newline='', encoding='utf-8') as f:
+            fieldnames = [
+                'year', 'question_group', 'response_count',
+                'mean', 'median', 'std_dev', 'min', 'max'
+            ]
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(aggregates)
+
+        print(f"  ✓ Wrote {file_path.name}")
+
+    def _write_segment_aggregates(self, aggregates: List[Dict]) -> None:
+        """Write segment_aggregates.csv"""
+        file_path = self.output_dir / 'segment_aggregates.csv'
+
+        with open(file_path, 'w', newline='', encoding='utf-8') as f:
+            fieldnames = [
+                'year', 'segment_type', 'segment_value', 'question_short_form',
+                'response_count', 'mean', 'median'
+            ]
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(aggregates)
+
+        print(f"  ✓ Wrote {file_path.name}")
+
+    def _write_correlations(self, correlations: List[Dict]) -> None:
+        """Write correlations.csv"""
+        file_path = self.output_dir / 'correlations.csv'
+
+        with open(file_path, 'w', newline='', encoding='utf-8') as f:
+            fieldnames = [
+                'year', 'question_1', 'question_2', 'correlation',
+                'n_pairs', 'interpretation'
+            ]
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(correlations)
+
+        print(f"  ✓ Wrote {file_path.name}")
+
+    def _write_unmatched_domains(self) -> None:
+        """Write unmatched_domains.csv"""
+        file_path = self.output_dir / 'unmatched_domains.csv'
+
+        with open(file_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['domain', 'occurrences'])
+
+            # Count occurrences
+            domain_counts = defaultdict(int)
+            for resp in self.normalized_responses:
+                if resp.respondent_domain in self.unmatched_domains:
+                    domain_counts[resp.respondent_domain] += 1
+
+            for domain in sorted(self.unmatched_domains):
+                writer.writerow([domain, domain_counts[domain]])
+
+        print(f"  ✓ Wrote {file_path.name}")
+
+    def _write_unknown_questions(self) -> None:
+        """Write unknown_questions.csv"""
+        file_path = self.output_dir / 'unknown_questions.csv'
+
+        with open(file_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['question_column', 'occurrences'])
+
+            # Count occurrences
+            question_counts = defaultdict(int)
+            for resp in self.normalized_responses:
+                if resp.question_short_form in self.unknown_questions:
+                    question_counts[resp.question_short_form] += 1
+
+            for question in sorted(self.unknown_questions):
+                writer.writerow([question, question_counts[question]])
+
+        print(f"  ✓ Wrote {file_path.name}")
+
+    def print_summary(self) -> None:
+        """Print analysis summary"""
+        print("=" * 60)
+        print("ANALYSIS SUMMARY")
+        print("=" * 60)
+        print(f"Total responses read:        {self.stats['rows_read']}")
+        print(f"Matched to companies:        {self.stats['matched_companies']}")
+        print(f"Unmatched domains:           {self.stats['unmatched_domains']}")
+        print(f"Numeric answers:             {self.stats['numeric_answers']}")
+        print(f"Text answers:                {self.stats['text_answers']}")
+        print(f"Normalized records created:  {len(self.normalized_responses)}")
+        print(f"Unknown questions found:     {len(self.unknown_questions)}")
+        print("=" * 60)
+
+    def run(self) -> None:
+        """Execute the full analysis pipeline"""
+        try:
+            self.validate_structure()
+            self.load_questions()
+            self.load_companies()
+            self.load_responses()
+            self.normalize_responses()
+            self.generate_outputs()
+            self.print_summary()
+
+            print("\n✓ Analysis completed successfully!")
+
+        except Exception as e:
+            print(f"\n✗ Error: {e}", file=sys.stderr)
+            raise
+
+
+def main():
+    """Main entry point"""
+    parser = argparse.ArgumentParser(
+        description='Customer Satisfaction Survey Analysis Tool',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python survey_analyzer.py
+  python survey_analyzer.py --input ./data/input --output ./data/output
+        """
+    )
+
+    parser.add_argument(
+        '--input',
+        default='./input',
+        help='Input directory path (default: ./input)'
+    )
+
+    parser.add_argument(
+        '--output',
+        default='./output',
+        help='Output directory path (default: ./output)'
+    )
+
+    args = parser.parse_args()
+
+    print("=" * 60)
+    print("Customer Satisfaction Survey Analysis Tool")
+    print("=" * 60)
+    print(f"Input directory:  {args.input}")
+    print(f"Output directory: {args.output}")
+    print("=" * 60)
+    print()
+
+    analyzer = SurveyAnalyzer(args.input, args.output)
+    analyzer.run()
+
+
+if __name__ == '__main__':
+    main()

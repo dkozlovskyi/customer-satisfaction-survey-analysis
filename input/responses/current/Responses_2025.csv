@@ -1,0 +1,19 @@
+Record ID,Email,Contact first name,Contact last name,Date,Survey Type,Team Delivery Timeliness Rating,Product Quality Satisfaction Rating,Team Technical Expertise Confidence Rating,Team Communication Satisfaction Rating,Team Transparency Rating,Team Effort in Understanding and Clarifying Requests Rating,Team Collaboration Ability Rating,Team Respect Rating,Team Professional Growth Rating,Team Feedback Seeking and Implementation Rating,Team Open-Mindedness Rating,Opportunities for Team to Assume Additional Responsibilities,Customer Satisfaction Rating,Service Cost-Value Balance Rating
+R2025001,john.smith@acme.com,John,Smith,2025-03-15,Company-Level,5,5,5,5,5,5,5,5,5,5,5,Yes - they have grown significantly,5,5
+R2025002,sarah.jones@acme.com,Sarah,Jones,2025-03-16,Team-Level,5,5,5,5,5,5,5,5,5,5,5,Absolutely,,
+R2025003,mike.chen@techstart.io,Mike,Chen,2025-03-17,Company-Level,5,5,5,4,5,5,5,5,5,4,5,Yes - much improved,5,4
+R2025004,anna.mueller@globalsolutions.net,Anna,Mueller,2025-03-18,Team-Level,5,5,5,5,5,5,5,5,5,5,5,Absolutely - they are outstanding,,
+R2025005,raj.patel@innovate.co,Raj,Patel,2025-03-19,Company-Level,4,4,5,4,4,4,4,5,4,4,5,Yes - showing improvement,4,4
+R2025006,lisa.wong@financetech.com,Lisa,Wong,2025-03-20,Company-Level,5,5,5,5,5,5,5,5,5,5,5,Yes - consistently excellent,5,5
+R2025007,david.brown@financetech.com,David,Brown,2025-03-21,Team-Level,5,5,5,5,5,5,5,5,5,5,5,Yes - top performers,,
+R2025008,emily.johnson@healthsys.org,Emily,Johnson,2025-03-22,Company-Level,5,5,5,5,5,5,5,5,5,5,5,Yes - ready for more,5,5
+R2025009,carlos.rodriguez@eduplatform.edu,Carlos,Rodriguez,2025-03-23,Team-Level,5,5,5,5,5,5,5,5,5,5,5,Definitely,,
+R2025010,jennifer.lee@retailpro.com,Jennifer,Lee,2025-03-24,Company-Level,5,5,5,5,5,5,5,5,5,5,5,Yes - exceptional team,5,5
+R2025011,thomas.schmidt@autosys.de,Thomas,Schmidt,2025-03-25,Team-Level,5,5,5,5,5,5,5,5,5,5,5,Yes - very capable,,
+R2025012,michelle.davis@datainc.com,Michelle,Davis,2025-03-26,Company-Level,5,5,5,5,5,5,5,5,5,5,5,Yes - excellent growth,5,5
+R2025013,robert.taylor@acme.com,Robert,Taylor,2025-03-27,Team-Level,5,5,5,5,5,5,5,5,5,5,5,Absolutely,,
+R2025014,sophia.martin@techstart.io,Sophia,Martin,2025-03-28,Company-Level,4,5,5,4,4,5,5,5,4,4,5,Yes,5,4
+R2025015,james.wilson@unknown-company.com,James,Wilson,2025-03-29,Team-Level,5,5,5,5,5,5,5,5,5,5,5,Yes - great team,,
+R2025016,new.client@acme.com,New,Client,2025-03-30,Company-Level,5,5,5,5,5,5,5,5,5,5,5,Yes,5,5
+R2025017,another.contact@techstart.io,Another,Contact,2025-03-31,Team-Level,4,4,5,4,4,5,5,5,4,4,5,Yes,,
+R2025018,kate.anderson@financetech.com,Kate,Anderson,2025-04-01,Company-Level,5,5,5,5,5,5,5,5,5,5,5,Absolutely,5,5
