@@ -311,18 +311,19 @@ Statistical aggregation by question with 2024/2025 comparison and statistical si
 - `2025_std_dev` - Standard deviation in 2025
 - `2025_delta` - Change in mean from 2024 to 2025 (2025 mean - 2024 mean)
 - `2025_std_dev_group_deltas` - Standard deviation of deltas within the question group
-- `significant_change` - "yes" if delta deviates from group mean by more than group std dev, otherwise "no"
+- `significant_change` - "yes" if change meets significance criteria, otherwise "no"
 
 **Significance Detection Logic:**
 
-For each question group, the tool calculates:
-1. Mean delta across all questions in the group
-2. Standard deviation of deltas within the group
+For each question group, the tool calculates the standard deviation of deltas within the group.
 
-A question's change is marked as "yes" (significant) if:
-- |question_delta - group_mean_delta| > group_std_dev_delta
+A question's change is marked as "yes" (significant) if **either** condition is met:
+1. |question_delta| ≥ 0.5 (absolute change of 0.5 points or more), **OR**
+2. |question_delta| > group_std_dev_delta (exceeds typical group variability)
 
-This helps identify questions that changed unusually compared to their peer questions.
+This dual-criteria approach ensures that:
+- Large changes (≥0.5 points) are always flagged as significant
+- Smaller changes that are unusual for their group are also detected
 
 **Use Cases:**
 - Quick 2024 vs 2025 comparison in single view
