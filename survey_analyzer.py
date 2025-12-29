@@ -520,7 +520,7 @@ class SurveyAnalyzer:
                             significant_change = 'yes'
                         elif question_group in group_delta_stats:
                             std_delta = group_delta_stats[question_group]['std_delta']
-                            if abs(delta) > std_delta:
+                            if 0 < std_delta < abs(delta):
                                 significant_change = 'yes'
 
                     aggregates.append({
