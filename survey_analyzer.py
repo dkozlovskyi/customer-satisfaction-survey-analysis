@@ -544,8 +544,14 @@ class SurveyAnalyzer:
         return sorted(aggregates, key=lambda x: x['question_short_form'])
 
     def aggregate_by_question_group(self) -> List[Dict]:
-        """Aggregate responses by question group and year with YoY delta"""
+        """Aggregate responses by question group with 2024/2025 comparison and significance detection"""
         print("Aggregating by question group...")
+
+        # First, determine survey type for each question group from questions metadata
+        group_to_survey_type = {}
+        for question_short_form, question in self.questions.items():
+            if question.question_group not in group_to_survey_type:
+                group_to_survey_type[question.question_group] = question.survey_type
 
         # Group by year and question group
         groups = defaultdict(list)
@@ -555,51 +561,104 @@ class SurveyAnalyzer:
                 key = (resp.year, resp.question_group)
                 groups[key].append(resp.answer_numeric)
 
-        # Calculate aggregates by group (without year separation for delta calc)
-        group_data = defaultdict(dict)  # group -> {year -> mean}
+        # Calculate aggregates by group
+        group_data = defaultdict(dict)  # group -> {year -> stats}
 
         for (year, group), values in groups.items():
             stats = self.calculate_stats(values)
+            if group not in group_data:
+                group_data[group] = {'survey_type': group_to_survey_type.get(group, 'Unknown')}
             group_data[group][year] = {
                 'response_count': stats.count,
                 'mean': round(stats.mean, 2),
                 'median': round(stats.median, 2),
-                'std_dev': round(stats.std_dev, 2),
-                'min': stats.min_val,
-                'max': stats.max_val
+                'std_dev': round(stats.std_dev, 2)
             }
 
         # Get all years and sort them
         all_years = sorted(set(year for year, _ in groups.keys()))
 
-        # Build final aggregates with deltas
-        aggregates = []
-        for group, data in group_data.items():
-            for year in all_years:
-                if year in data:
-                    year_data = data[year]
+        # Calculate deltas for each survey type
+        survey_type_deltas = defaultdict(list)  # survey_type -> [deltas]
 
-                    # Calculate delta if there's a previous year
+        for group, data in group_data.items():
+            if len(all_years) >= 2:
+                prev_year = all_years[-2]
+                curr_year = all_years[-1]
+                if prev_year in data and curr_year in data:
+                    delta = data[curr_year]['mean'] - data[prev_year]['mean']
+                    survey_type = data['survey_type']
+                    survey_type_deltas[survey_type].append(delta)
+
+        # Calculate survey type delta statistics
+        survey_type_delta_stats = {}
+        for survey_type, deltas in survey_type_deltas.items():
+            if len(deltas) > 0:
+                std_delta = statistics.stdev(deltas) if len(deltas) > 1 else 0.0
+                survey_type_delta_stats[survey_type] = {
+                    'std_delta': std_delta
+                }
+
+        # Build final aggregates (2025 rows only with 2024 data in columns)
+        aggregates = []
+
+        if len(all_years) >= 2:
+            prev_year = all_years[-2]
+            curr_year = all_years[-1]
+
+            for group, data in group_data.items():
+                if curr_year in data:  # Only include groups that have current year data
+                    curr_data = data[curr_year]
+                    survey_type = data['survey_type']
+
+                    # Get previous year data if available
+                    prev_data = data.get(prev_year, {
+                        'response_count': 'N/A',
+                        'mean': 'N/A',
+                        'median': 'N/A',
+                        'std_dev': 'N/A'
+                    })
+
+                    # Calculate delta
                     delta = 'N/A'
-                    if len(all_years) >= 2 and year == max(all_years):
-                        prev_year = all_years[-2]
-                        if prev_year in data:
-                            delta = round(year_data['mean'] - data[prev_year]['mean'], 2)
+                    if prev_year in data:
+                        delta = round(curr_data['mean'] - data[prev_year]['mean'], 2)
+
+                    # Get survey type delta std dev
+                    survey_type_std_delta = 'N/A'
+                    if survey_type in survey_type_delta_stats:
+                        survey_type_std_delta = round(survey_type_delta_stats[survey_type]['std_delta'], 2)
+
+                    # Determine if change is significant (same logic as question_aggregates)
+                    significant_change = 'no'
+                    if isinstance(delta, (int, float)) and delta != 'N/A':
+                        # Mark as significant if delta exceeds survey type std dev OR if absolute delta >= 0.5
+                        if abs(delta) >= 0.5:
+                            significant_change = 'yes'
+                        elif survey_type in survey_type_delta_stats:
+                            std_delta = survey_type_delta_stats[survey_type]['std_delta']
+                            if abs(delta) > std_delta:
+                                significant_change = 'yes'
 
                     aggregates.append({
-                        'year': year,
+                        'year': curr_year,
                         'question_group': group,
-                        'response_count': year_data['response_count'],
-                        'mean': year_data['mean'],
-                        'median': year_data['median'],
-                        'std_dev': year_data['std_dev'],
-                        'min': year_data['min'],
-                        'max': year_data['max'],
-                        'delta': delta
+                        'survey_type': survey_type,
+                        '2024_response_count': prev_data['response_count'],
+                        '2024_mean': prev_data['mean'],
+                        '2024_median': prev_data['median'],
+                        '2024_std_dev': prev_data['std_dev'],
+                        '2025_response_count': curr_data['response_count'],
+                        '2025_mean': curr_data['mean'],
+                        '2025_median': curr_data['median'],
+                        '2025_std_dev': curr_data['std_dev'],
+                        '2025_delta': delta,
+                        '2025_std_dev_survey_type_deltas': survey_type_std_delta,
+                        'significant_change': significant_change
                     })
 
         print(f"  ✓ Created {len(aggregates)} question group aggregates\n")
-        return sorted(aggregates, key=lambda x: (x['year'], x['question_group']))
+        return sorted(aggregates, key=lambda x: x['question_group'])
 
     def aggregate_by_segment(self) -> List[Dict]:
         """Aggregate responses by segment (region, tenure) and year"""
@@ -971,8 +1030,10 @@ class SurveyAnalyzer:
 
         with open(file_path, 'w', newline='', encoding='utf-8') as f:
             fieldnames = [
-                'year', 'question_group', 'response_count',
-                'mean', 'median', 'std_dev', 'min', 'max', 'delta'
+                'year', 'question_group', 'survey_type',
+                '2024_response_count', '2024_mean', '2024_median', '2024_std_dev',
+                '2025_response_count', '2025_mean', '2025_median', '2025_std_dev',
+                '2025_delta', '2025_std_dev_survey_type_deltas', 'significant_change'
             ]
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()

@@ -334,23 +334,41 @@ This dual-criteria approach ensures that:
 
 ### 4. question_group_aggregates.csv
 
-Statistical aggregation by question group and year with year-over-year delta.
+Statistical aggregation by question group with 2024/2025 comparison and survey type-based significance detection.
+
+**Important:** Only shows 2025 year rows with 2024 data in separate columns for easy comparison.
 
 **Columns:**
-- `year` - Survey year
+- `year` - Always 2025 (current year)
 - `question_group` - Question group name
-- `response_count` - Number of responses
-- `mean` - Average score across all questions in group
-- `median` - Median score
-- `std_dev` - Standard deviation
-- `min` - Minimum score
-- `max` - Maximum score
-- `delta` - Change in mean from previous year (N/A for first year or current year only)
+- `survey_type` - Survey type the group belongs to (Team-Level or Company-Level)
+- `2024_response_count` - Number of responses in 2024
+- `2024_mean` - Average score in 2024
+- `2024_median` - Median score in 2024
+- `2024_std_dev` - Standard deviation in 2024
+- `2025_response_count` - Number of responses in 2025
+- `2025_mean` - Average score in 2025
+- `2025_median` - Median score in 2025
+- `2025_std_dev` - Standard deviation in 2025
+- `2025_delta` - Change in mean from 2024 to 2025
+- `2025_std_dev_survey_type_deltas` - Standard deviation of deltas within the survey type (Team-Level or Company-Level)
+- `significant_change` - "yes" if change meets significance criteria, otherwise "no"
+
+**Significance Detection Logic:**
+
+For each survey type (Team-Level or Company-Level), the tool calculates the standard deviation of deltas across all question groups in that survey type.
+
+A question group's change is marked as "yes" (significant) if **either** condition is met:
+1. |group_delta| ≥ 0.5 (absolute change of 0.5 points or more), **OR**
+2. |group_delta| > survey_type_std_dev_delta (exceeds typical variability for that survey type)
+
+This helps identify question groups with unusual changes compared to other groups in the same survey type.
 
 **Use Cases:**
 - High-level performance overview
 - Compare broad areas (e.g., "Team Performance" vs "Customer Satisfaction")
 - Track year-over-year trends at group level
+- Identify which question groups changed significantly
 - Executive summaries
 
 ### 5. segment_aggregates.csv
