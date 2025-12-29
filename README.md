@@ -108,6 +108,14 @@ Survey responses for a specific year.
 **Question Columns:**
 All other columns are treated as question responses. Column names must match the `Short Form` values in questions.csv.
 
+**Columns Automatically Skipped (Non-Analytical):**
+The following columns are automatically excluded from analysis if present:
+- `Survey ID` - Survey instance identifier (no analytical value)
+- `Response` - NPS explanation text (qualitative, not quantitative)
+- `Industry Standard Question Type` - Question metadata (not response data)
+- `Source` - Survey distribution method (not analytical)
+- `Submission Name` - Submission title (not analytical)
+
 **Example:**
 ```csv
 Record ID,Email,Contact first name,Contact last name,Date,Survey Type,Team Delivery Timeliness Rating,Customer Satisfaction Rating
@@ -120,6 +128,7 @@ R002,jane@techco.io,Jane,Smith,2024-03-16,Team-Level,4,
 - Text responses: Open-ended answers are kept as text
 - Company-Level surveys include additional questions not in Team-Level surveys
 - Empty values are ignored
+- Non-analytical columns are automatically skipped
 
 ## Usage
 
@@ -340,15 +349,22 @@ Aggregation by customer segments (region, survey type).
 
 ### 6. correlations.csv
 
-Pearson correlation coefficients between numeric questions.
+Pearson correlation coefficients between numeric questions (latest year only).
 
 **Columns:**
-- `year` - Survey year
+- `year` - Survey year (latest year only)
+- `segment_type` - Type of segmentation (Overall, Region, Tenure)
+- `segment_value` - Specific segment (All, US, Canada, Rest of the World, >4 years, ≤4 years)
 - `question_1` - First question
 - `question_2` - Second question
 - `correlation` - Pearson correlation coefficient (-1 to 1)
 - `n_pairs` - Number of paired responses
 - `interpretation` - Qualitative strength (Very Weak, Weak, Moderate, Strong)
+
+**Segmentation:**
+- **Overall**: All responses combined
+- **Region**: US, Canada, Rest of the World (includes Europe, Asia Pacific, Latin America, Other)
+- **Tenure**: >4 years (established clients), ≤4 years (newer clients)
 
 **Interpretation Guide:**
 - **Strong** (|r| ≥ 0.7): Strong relationship
@@ -358,25 +374,31 @@ Pearson correlation coefficients between numeric questions.
 
 **Methodological Cautions:**
 - Correlation ≠ causation
-- Minimum 3 paired responses required
+- Minimum 3 paired responses required per segment
 - Consider sample size when interpreting
 - Be aware of confounding variables
+- Only calculated for latest year to focus on current trends
 
 **Use Cases:**
 - Identify related satisfaction drivers
 - Understand which areas move together
+- Compare correlation patterns across regions and tenure groups
 - Hypothesis generation for deeper analysis
 
 ### 7. unmatched_domains.csv
 
-Email domains that couldn't be matched to companies.
+Full customer details for respondents whose email domains couldn't be matched to companies.
 
 **Columns:**
-- `domain` - Email domain
-- `occurrences` - Number of responses from this domain
+- `email` - Respondent email address
+- `first_name` - Respondent first name
+- `last_name` - Respondent last name
+- `domain` - Email domain (extracted from email)
+- `response_count` - Number of survey responses from this customer
 
 **Use Cases:**
 - Identify missing companies in metadata
+- Contact information for manual company lookup
 - Update companies.csv for future runs
 - Data quality improvement
 

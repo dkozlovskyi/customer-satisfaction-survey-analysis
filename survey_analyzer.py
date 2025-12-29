@@ -245,10 +245,19 @@ class SurveyAnalyzer:
         with open(file_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
 
-            # Identify question columns (exclude standard columns)
+            # Identify question columns (exclude standard columns and non-analytical columns)
             standard_cols = {
                 'Record ID', 'Email', 'Contact first name', 'Contact last name',
                 'Date', 'Survey Type'
+            }
+
+            # Non-analytical columns to skip
+            skip_cols = {
+                'Survey ID',                          # Survey instance ID - no analytical value
+                'Response',                           # NPS explanation - qualitative only
+                'Industry Standard Question Type',    # Question type metadata - skip
+                'Source',                             # Survey distribution method - skip
+                'Submission Name'                     # Submission title - skip
             }
 
             for row in reader:
@@ -264,9 +273,9 @@ class SurveyAnalyzer:
                     answers={}
                 )
 
-                # Extract question answers
+                # Extract question answers (skip standard and non-analytical columns)
                 for col, value in row.items():
-                    if col not in standard_cols and value.strip():
+                    if col not in standard_cols and col not in skip_cols and value.strip():
                         response.answers[col] = value.strip()
 
                 self.responses.append(response)
@@ -530,7 +539,7 @@ class SurveyAnalyzer:
         return sorted(aggregates, key=lambda x: (x['year'], x['segment_type'], x['segment_value']))
 
     def calculate_correlations(self) -> List[Dict]:
-        """Calculate correlations between numeric questions"""
+        """Calculate correlations between numeric questions for latest year only"""
         print("Calculating correlations...")
 
         correlations = []
@@ -540,44 +549,120 @@ class SurveyAnalyzer:
             r.question_short_form for r in self.normalized_responses if r.is_numeric
         )
 
-        for year in set(r.year for r in self.normalized_responses):
-            # Build response matrix: email -> {question: value}
-            response_matrix = defaultdict(dict)
+        # Get latest year only
+        years = set(r.year for r in self.normalized_responses)
+        if not years:
+            return correlations
+
+        latest_year = max(years)
+        print(f"  Calculating correlations for latest year: {latest_year}")
+
+        # Overall correlations (no segmentation)
+        response_matrix = defaultdict(dict)
+        for resp in self.normalized_responses:
+            if resp.year == latest_year and resp.is_numeric and resp.answer_numeric is not None:
+                response_matrix[resp.email][resp.question_short_form] = resp.answer_numeric
+
+        correlations.extend(self._calculate_correlations_for_segment(
+            response_matrix, numeric_questions, latest_year, 'Overall', 'All'
+        ))
+
+        # Region-based correlations (US, Canada, Rest of the World)
+        region_segments = {
+            'US': 'US',
+            'Canada': 'Canada',
+            'Rest of the World': ['Europe', 'Asia Pacific', 'Latin America', 'Other']
+        }
+
+        for segment_name, region_filter in region_segments.items():
+            response_matrix_region = defaultdict(dict)
 
             for resp in self.normalized_responses:
-                if resp.year == year and resp.is_numeric and resp.answer_numeric is not None:
-                    response_matrix[resp.email][resp.question_short_form] = resp.answer_numeric
+                if resp.year == latest_year and resp.is_numeric and resp.answer_numeric is not None:
+                    # Check if region matches
+                    if isinstance(region_filter, str):
+                        if resp.region == region_filter:
+                            response_matrix_region[resp.email][resp.question_short_form] = resp.answer_numeric
+                    else:  # List of regions for "Rest of the World"
+                        if resp.region in region_filter or (resp.region and resp.region not in ['US', 'Canada']):
+                            response_matrix_region[resp.email][resp.question_short_form] = resp.answer_numeric
 
-            # Calculate pairwise correlations
-            question_list = sorted(numeric_questions)
+            if response_matrix_region:
+                correlations.extend(self._calculate_correlations_for_segment(
+                    response_matrix_region, numeric_questions, latest_year, 'Region', segment_name
+                ))
 
-            for i, q1 in enumerate(question_list):
-                for q2 in question_list[i+1:]:
-                    # Get paired values
-                    pairs = []
-                    for email, answers in response_matrix.items():
-                        if q1 in answers and q2 in answers:
-                            pairs.append((answers[q1], answers[q2]))
+        # Tenure-based correlations (>4 years vs <4 years)
+        tenure_segments = {
+            '>4 years': lambda t: self._parse_tenure(t) > 4,
+            '≤4 years': lambda t: 0 < self._parse_tenure(t) <= 4
+        }
 
-                    if len(pairs) >= 3:  # Need at least 3 pairs for meaningful correlation
-                        values1 = [p[0] for p in pairs]
-                        values2 = [p[1] for p in pairs]
+        for segment_name, tenure_filter in tenure_segments.items():
+            response_matrix_tenure = defaultdict(dict)
 
-                        # Calculate Pearson correlation
-                        corr = self.pearson_correlation(values1, values2)
+            for resp in self.normalized_responses:
+                if resp.year == latest_year and resp.is_numeric and resp.answer_numeric is not None:
+                    if tenure_filter(resp.tenure_years):
+                        response_matrix_tenure[resp.email][resp.question_short_form] = resp.answer_numeric
 
-                        if corr is not None:
-                            correlations.append({
-                                'year': year,
-                                'question_1': q1,
-                                'question_2': q2,
-                                'correlation': round(corr, 3),
-                                'n_pairs': len(pairs),
-                                'interpretation': self.interpret_correlation(corr)
-                            })
+            if response_matrix_tenure:
+                correlations.extend(self._calculate_correlations_for_segment(
+                    response_matrix_tenure, numeric_questions, latest_year, 'Tenure', segment_name
+                ))
 
         print(f"  ✓ Calculated {len(correlations)} correlations\n")
-        return sorted(correlations, key=lambda x: (x['year'], abs(x['correlation'])), reverse=True)
+        return sorted(correlations, key=lambda x: (x['segment_type'], x['segment_value'], abs(x['correlation'])), reverse=True)
+
+    def _parse_tenure(self, tenure_str: str) -> float:
+        """Parse tenure string to float"""
+        if not tenure_str:
+            return 0.0
+        try:
+            return float(tenure_str)
+        except ValueError:
+            return 0.0
+
+    def _calculate_correlations_for_segment(
+        self,
+        response_matrix: Dict,
+        numeric_questions: Set[str],
+        year: int,
+        segment_type: str,
+        segment_value: str
+    ) -> List[Dict]:
+        """Calculate pairwise correlations for a given segment"""
+        correlations = []
+        question_list = sorted(numeric_questions)
+
+        for i, q1 in enumerate(question_list):
+            for q2 in question_list[i+1:]:
+                # Get paired values
+                pairs = []
+                for email, answers in response_matrix.items():
+                    if q1 in answers and q2 in answers:
+                        pairs.append((answers[q1], answers[q2]))
+
+                if len(pairs) >= 3:  # Need at least 3 pairs for meaningful correlation
+                    values1 = [p[0] for p in pairs]
+                    values2 = [p[1] for p in pairs]
+
+                    # Calculate Pearson correlation
+                    corr = self.pearson_correlation(values1, values2)
+
+                    if corr is not None:
+                        correlations.append({
+                            'year': year,
+                            'segment_type': segment_type,
+                            'segment_value': segment_value,
+                            'question_1': q1,
+                            'question_2': q2,
+                            'correlation': round(corr, 3),
+                            'n_pairs': len(pairs),
+                            'interpretation': self.interpret_correlation(corr)
+                        })
+
+        return correlations
 
     def pearson_correlation(self, x: List[float], y: List[float]) -> Optional[float]:
         """Calculate Pearson correlation coefficient"""
@@ -757,8 +842,8 @@ class SurveyAnalyzer:
 
         with open(file_path, 'w', newline='', encoding='utf-8') as f:
             fieldnames = [
-                'year', 'question_1', 'question_2', 'correlation',
-                'n_pairs', 'interpretation'
+                'year', 'segment_type', 'segment_value', 'question_1', 'question_2',
+                'correlation', 'n_pairs', 'interpretation'
             ]
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
@@ -767,21 +852,36 @@ class SurveyAnalyzer:
         print(f"  ✓ Wrote {file_path.name}")
 
     def _write_unmatched_domains(self) -> None:
-        """Write unmatched_domains.csv"""
+        """Write unmatched_domains.csv with full customer details"""
         file_path = self.output_dir / 'unmatched_domains.csv'
 
         with open(file_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow(['domain', 'occurrences'])
+            fieldnames = ['email', 'first_name', 'last_name', 'domain', 'response_count']
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
 
-            # Count occurrences
-            domain_counts = defaultdict(int)
+            # Collect unique customers with unmatched domains
+            unmatched_customers = defaultdict(lambda: {'email': '', 'first_name': '', 'last_name': '', 'domain': '', 'count': 0})
+
             for resp in self.normalized_responses:
                 if resp.respondent_domain in self.unmatched_domains:
-                    domain_counts[resp.respondent_domain] += 1
+                    key = resp.email
+                    if not unmatched_customers[key]['email']:
+                        unmatched_customers[key]['email'] = resp.email
+                        unmatched_customers[key]['first_name'] = resp.first_name
+                        unmatched_customers[key]['last_name'] = resp.last_name
+                        unmatched_customers[key]['domain'] = resp.respondent_domain
+                    unmatched_customers[key]['count'] += 1
 
-            for domain in sorted(self.unmatched_domains):
-                writer.writerow([domain, domain_counts[domain]])
+            # Write sorted by email
+            for customer in sorted(unmatched_customers.values(), key=lambda x: x['email']):
+                writer.writerow({
+                    'email': customer['email'],
+                    'first_name': customer['first_name'],
+                    'last_name': customer['last_name'],
+                    'domain': customer['domain'],
+                    'response_count': customer['count']
+                })
 
         print(f"  ✓ Wrote {file_path.name}")
 
