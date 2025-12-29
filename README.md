@@ -112,6 +112,7 @@ All other columns are treated as question responses. Column names must match the
 The following columns are automatically excluded from analysis if present:
 - `Survey ID` - Survey instance identifier (no analytical value)
 - `Response` - NPS explanation text (qualitative, not quantitative)
+- `Sentiment` - Text representation of NPS metric (not analytical)
 - `Industry Standard Question Type` - Question metadata (not response data)
 - `Source` - Survey distribution method (not analytical)
 - `Submission Name` - Submission title (not analytical)
@@ -292,7 +293,7 @@ Year-over-year changes at the respondent/question level (numeric questions only)
 
 ### 3. question_aggregates.csv
 
-Statistical aggregation by question and year.
+Statistical aggregation by question and year with year-over-year delta.
 
 **Columns:**
 - `year` - Survey year
@@ -304,15 +305,17 @@ Statistical aggregation by question and year.
 - `std_dev` - Standard deviation
 - `min` - Minimum score
 - `max` - Maximum score
+- `delta` - Change in mean from previous year (N/A for first year or current year only)
 
 **Use Cases:**
 - Compare question performance across years
 - Identify highest/lowest rated areas
+- Track year-over-year improvements or declines
 - Understand score distribution
 
 ### 4. question_group_aggregates.csv
 
-Statistical aggregation by question group and year.
+Statistical aggregation by question group and year with year-over-year delta.
 
 **Columns:**
 - `year` - Survey year
@@ -323,10 +326,12 @@ Statistical aggregation by question group and year.
 - `std_dev` - Standard deviation
 - `min` - Minimum score
 - `max` - Maximum score
+- `delta` - Change in mean from previous year (N/A for first year or current year only)
 
 **Use Cases:**
 - High-level performance overview
 - Compare broad areas (e.g., "Team Performance" vs "Customer Satisfaction")
+- Track year-over-year trends at group level
 - Executive summaries
 
 ### 5. segment_aggregates.csv
@@ -347,9 +352,40 @@ Aggregation by customer segments (region, survey type).
 - Identify segment-specific issues
 - Targeted improvement initiatives
 
-### 6. correlations.csv
+### 6. account_aggregates.csv
 
-Pearson correlation coefficients between numeric questions (latest year only).
+Aggregation by company account showing all respondents per account.
+
+**Columns:**
+- `year` - Survey year
+- `account_domain` - Company email domain
+- `company_name` - Company name
+- `question_short_form` - Question identifier
+- `respondent_count` - Number of unique respondents from this account
+- `respondents` - Semicolon-separated list of all respondents (Name and email)
+- `response_count` - Total number of numeric responses
+- `mean` - Average score for this account/question
+- `median` - Median score
+- `min` - Minimum score
+- `max` - Maximum score
+
+**Use Cases:**
+- Analyze satisfaction at the company level
+- See which employees from each company responded
+- Identify accounts with multiple respondents
+- Compare scores across different accounts
+- Account-specific reporting and follow-up
+
+**Example:**
+For Acme Corporation with 3 respondents (John, Sarah, Robert) answering "Product Quality":
+- Shows all 3 names with emails in the respondents column
+- Calculates aggregate statistics across all their responses
+
+### 7. correlations.csv
+
+Strong Pearson correlation coefficients between numeric questions (latest year only).
+
+**Important:** Only correlations with |r| ≥ 0.7 (Strong) are included in this file.
 
 **Columns:**
 - `year` - Survey year (latest year only)
@@ -357,20 +393,17 @@ Pearson correlation coefficients between numeric questions (latest year only).
 - `segment_value` - Specific segment (All, US, Canada, Rest of the World, >4 years, ≤4 years)
 - `question_1` - First question
 - `question_2` - Second question
-- `correlation` - Pearson correlation coefficient (-1 to 1)
+- `correlation` - Pearson correlation coefficient (range: -1 to 1, filtered to |r| ≥ 0.7)
 - `n_pairs` - Number of paired responses
-- `interpretation` - Qualitative strength (Very Weak, Weak, Moderate, Strong)
+- `interpretation` - Always "Strong" (only strong correlations are included)
 
 **Segmentation:**
 - **Overall**: All responses combined
 - **Region**: US, Canada, Rest of the World (includes Europe, Asia Pacific, Latin America, Other)
 - **Tenure**: >4 years (established clients), ≤4 years (newer clients)
 
-**Interpretation Guide:**
-- **Strong** (|r| ≥ 0.7): Strong relationship
-- **Moderate** (0.4 ≤ |r| < 0.7): Moderate relationship
-- **Weak** (0.2 ≤ |r| < 0.4): Weak relationship
-- **Very Weak** (|r| < 0.2): Very weak relationship
+**Correlation Strength:**
+- **Strong** (|r| ≥ 0.7): Strong relationship - Only these are included in the output
 
 **Methodological Cautions:**
 - Correlation ≠ causation
@@ -385,7 +418,7 @@ Pearson correlation coefficients between numeric questions (latest year only).
 - Compare correlation patterns across regions and tenure groups
 - Hypothesis generation for deeper analysis
 
-### 7. unmatched_domains.csv
+### 8. unmatched_domains.csv
 
 Full customer details for respondents whose email domains couldn't be matched to companies.
 
@@ -402,7 +435,7 @@ Full customer details for respondents whose email domains couldn't be matched to
 - Update companies.csv for future runs
 - Data quality improvement
 
-### 8. unknown_questions.csv
+### 9. unknown_questions.csv
 
 Question columns in responses not found in questions.csv metadata.
 

@@ -255,6 +255,7 @@ class SurveyAnalyzer:
             skip_cols = {
                 'Survey ID',                          # Survey instance ID - no analytical value
                 'Response',                           # NPS explanation - qualitative only
+                'Sentiment',                          # Text representation of NPS - skip
                 'Industry Standard Question Type',    # Question type metadata - skip
                 'Source',                             # Survey distribution method - skip
                 'Submission Name'                     # Submission title - skip
@@ -431,7 +432,7 @@ class SurveyAnalyzer:
         return deltas
 
     def aggregate_by_question(self) -> List[Dict]:
-        """Aggregate responses by question and year"""
+        """Aggregate responses by question and year with YoY delta"""
         print("Aggregating by question...")
 
         # Group by year and question
@@ -442,27 +443,57 @@ class SurveyAnalyzer:
                 key = (resp.year, resp.question_short_form, resp.question_group)
                 groups[key].append(resp.answer_numeric)
 
-        # Calculate aggregates
-        aggregates = []
+        # Calculate aggregates by question (without year separation for delta calc)
+        question_data = defaultdict(dict)  # question -> {year -> mean}
+
         for (year, question, group), values in groups.items():
             stats = self.calculate_stats(values)
-            aggregates.append({
-                'year': year,
-                'question_short_form': question,
-                'question_group': group,
+            if question not in question_data:
+                question_data[question] = {'group': group}
+            question_data[question][year] = {
                 'response_count': stats.count,
                 'mean': round(stats.mean, 2),
                 'median': round(stats.median, 2),
                 'std_dev': round(stats.std_dev, 2),
                 'min': stats.min_val,
                 'max': stats.max_val
-            })
+            }
+
+        # Get all years and sort them
+        all_years = sorted(set(year for year, _, _ in groups.keys()))
+
+        # Build final aggregates with deltas
+        aggregates = []
+        for question, data in question_data.items():
+            for year in all_years:
+                if year in data:
+                    year_data = data[year]
+
+                    # Calculate delta if there's a previous year
+                    delta = 'N/A'
+                    if len(all_years) >= 2 and year == max(all_years):
+                        prev_year = all_years[-2]
+                        if prev_year in data:
+                            delta = round(year_data['mean'] - data[prev_year]['mean'], 2)
+
+                    aggregates.append({
+                        'year': year,
+                        'question_short_form': question,
+                        'question_group': data['group'],
+                        'response_count': year_data['response_count'],
+                        'mean': year_data['mean'],
+                        'median': year_data['median'],
+                        'std_dev': year_data['std_dev'],
+                        'min': year_data['min'],
+                        'max': year_data['max'],
+                        'delta': delta
+                    })
 
         print(f"  ✓ Created {len(aggregates)} question aggregates\n")
         return sorted(aggregates, key=lambda x: (x['year'], x['question_short_form']))
 
     def aggregate_by_question_group(self) -> List[Dict]:
-        """Aggregate responses by question group and year"""
+        """Aggregate responses by question group and year with YoY delta"""
         print("Aggregating by question group...")
 
         # Group by year and question group
@@ -473,20 +504,48 @@ class SurveyAnalyzer:
                 key = (resp.year, resp.question_group)
                 groups[key].append(resp.answer_numeric)
 
-        # Calculate aggregates
-        aggregates = []
+        # Calculate aggregates by group (without year separation for delta calc)
+        group_data = defaultdict(dict)  # group -> {year -> mean}
+
         for (year, group), values in groups.items():
             stats = self.calculate_stats(values)
-            aggregates.append({
-                'year': year,
-                'question_group': group,
+            group_data[group][year] = {
                 'response_count': stats.count,
                 'mean': round(stats.mean, 2),
                 'median': round(stats.median, 2),
                 'std_dev': round(stats.std_dev, 2),
                 'min': stats.min_val,
                 'max': stats.max_val
-            })
+            }
+
+        # Get all years and sort them
+        all_years = sorted(set(year for year, _ in groups.keys()))
+
+        # Build final aggregates with deltas
+        aggregates = []
+        for group, data in group_data.items():
+            for year in all_years:
+                if year in data:
+                    year_data = data[year]
+
+                    # Calculate delta if there's a previous year
+                    delta = 'N/A'
+                    if len(all_years) >= 2 and year == max(all_years):
+                        prev_year = all_years[-2]
+                        if prev_year in data:
+                            delta = round(year_data['mean'] - data[prev_year]['mean'], 2)
+
+                    aggregates.append({
+                        'year': year,
+                        'question_group': group,
+                        'response_count': year_data['response_count'],
+                        'mean': year_data['mean'],
+                        'median': year_data['median'],
+                        'std_dev': year_data['std_dev'],
+                        'min': year_data['min'],
+                        'max': year_data['max'],
+                        'delta': delta
+                    })
 
         print(f"  ✓ Created {len(aggregates)} question group aggregates\n")
         return sorted(aggregates, key=lambda x: (x['year'], x['question_group']))
@@ -537,6 +596,46 @@ class SurveyAnalyzer:
 
         print(f"  ✓ Created {len(aggregates)} segment aggregates\n")
         return sorted(aggregates, key=lambda x: (x['year'], x['segment_type'], x['segment_value']))
+
+    def aggregate_by_account(self) -> List[Dict]:
+        """Aggregate responses by account (company domain) showing all respondents"""
+        print("Aggregating by account...")
+
+        aggregates = []
+
+        # Group by year, account_domain, and question
+        for year in set(r.year for r in self.normalized_responses):
+            # Get all accounts (companies)
+            accounts = defaultdict(lambda: {'company_name': '', 'respondents': set(), 'responses': []})
+
+            for resp in self.normalized_responses:
+                if resp.year == year and resp.account_domain:
+                    key = (resp.account_domain, resp.question_short_form)
+                    accounts[key]['company_name'] = resp.company_name
+                    accounts[key]['respondents'].add(f"{resp.first_name} {resp.last_name} ({resp.email})")
+                    if resp.is_numeric and resp.answer_numeric is not None:
+                        accounts[key]['responses'].append(resp.answer_numeric)
+
+            # Calculate aggregates for each account/question combination
+            for (domain, question), data in accounts.items():
+                if data['responses']:  # Only if we have numeric responses
+                    stats = self.calculate_stats(data['responses'])
+                    aggregates.append({
+                        'year': year,
+                        'account_domain': domain,
+                        'company_name': data['company_name'],
+                        'question_short_form': question,
+                        'respondent_count': len(data['respondents']),
+                        'respondents': '; '.join(sorted(data['respondents'])),
+                        'response_count': stats.count,
+                        'mean': round(stats.mean, 2),
+                        'median': round(stats.median, 2),
+                        'min': stats.min_val,
+                        'max': stats.max_val
+                    })
+
+        print(f"  ✓ Created {len(aggregates)} account aggregates\n")
+        return sorted(aggregates, key=lambda x: (x['year'], x['company_name'], x['question_short_form']))
 
     def calculate_correlations(self) -> List[Dict]:
         """Calculate correlations between numeric questions for latest year only"""
@@ -650,7 +749,8 @@ class SurveyAnalyzer:
                     # Calculate Pearson correlation
                     corr = self.pearson_correlation(values1, values2)
 
-                    if corr is not None:
+                    # Only include Strong correlations (|r| >= 0.7)
+                    if corr is not None and abs(corr) >= 0.7:
                         correlations.append({
                             'year': year,
                             'segment_type': segment_type,
@@ -659,7 +759,7 @@ class SurveyAnalyzer:
                             'question_2': q2,
                             'correlation': round(corr, 3),
                             'n_pairs': len(pairs),
-                            'interpretation': self.interpret_correlation(corr)
+                            'interpretation': 'Strong'
                         })
 
         return correlations
@@ -726,14 +826,18 @@ class SurveyAnalyzer:
         segment_aggs = self.aggregate_by_segment()
         self._write_segment_aggregates(segment_aggs)
 
-        # 6. Correlations
+        # 6. Account aggregates
+        account_aggs = self.aggregate_by_account()
+        self._write_account_aggregates(account_aggs)
+
+        # 7. Correlations
         correlations = self.calculate_correlations()
         self._write_correlations(correlations)
 
-        # 7. Unmatched domains
+        # 8. Unmatched domains
         self._write_unmatched_domains()
 
-        # 8. Unknown questions
+        # 9. Unknown questions
         self._write_unknown_questions()
 
         print(f"\n✓ All output files generated in: {self.output_dir}\n")
@@ -798,7 +902,7 @@ class SurveyAnalyzer:
         with open(file_path, 'w', newline='', encoding='utf-8') as f:
             fieldnames = [
                 'year', 'question_short_form', 'question_group', 'response_count',
-                'mean', 'median', 'std_dev', 'min', 'max'
+                'mean', 'median', 'std_dev', 'min', 'max', 'delta'
             ]
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
@@ -813,7 +917,7 @@ class SurveyAnalyzer:
         with open(file_path, 'w', newline='', encoding='utf-8') as f:
             fieldnames = [
                 'year', 'question_group', 'response_count',
-                'mean', 'median', 'std_dev', 'min', 'max'
+                'mean', 'median', 'std_dev', 'min', 'max', 'delta'
             ]
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
@@ -829,6 +933,21 @@ class SurveyAnalyzer:
             fieldnames = [
                 'year', 'segment_type', 'segment_value', 'question_short_form',
                 'response_count', 'mean', 'median'
+            ]
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(aggregates)
+
+        print(f"  ✓ Wrote {file_path.name}")
+
+    def _write_account_aggregates(self, aggregates: List[Dict]) -> None:
+        """Write account_aggregates.csv"""
+        file_path = self.output_dir / 'account_aggregates.csv'
+
+        with open(file_path, 'w', newline='', encoding='utf-8') as f:
+            fieldnames = [
+                'year', 'account_domain', 'company_name', 'question_short_form',
+                'respondent_count', 'respondents', 'response_count', 'mean', 'median', 'min', 'max'
             ]
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
