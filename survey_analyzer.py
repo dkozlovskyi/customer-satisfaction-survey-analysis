@@ -517,9 +517,8 @@ class SurveyAnalyzer:
                     if (question_group in group_delta_stats and
                         isinstance(delta, (int, float)) and
                         delta != 'N/A'):
-                        mean_delta = group_delta_stats[question_group]['mean_delta']
                         std_delta = group_delta_stats[question_group]['std_delta']
-                        if abs(delta - mean_delta) > std_delta:
+                        if abs(delta) > std_delta:
                             significant_change = 'yes'
 
                     aggregates.append({
