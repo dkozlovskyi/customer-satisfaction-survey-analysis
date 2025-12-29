@@ -293,25 +293,43 @@ Year-over-year changes at the respondent/question level (numeric questions only)
 
 ### 3. question_aggregates.csv
 
-Statistical aggregation by question and year with year-over-year delta.
+Statistical aggregation by question with 2024/2025 comparison and statistical significance detection.
+
+**Important:** Only shows 2025 year rows with 2024 data in separate columns for easy comparison.
 
 **Columns:**
-- `year` - Survey year
+- `year` - Always 2025 (current year)
 - `question_short_form` - Question identifier
 - `question_group` - Question group
-- `response_count` - Number of responses
-- `mean` - Average score
-- `median` - Median score
-- `std_dev` - Standard deviation
-- `min` - Minimum score
-- `max` - Maximum score
-- `delta` - Change in mean from previous year (N/A for first year or current year only)
+- `2024_response_count` - Number of responses in 2024 (N/A if question didn't exist)
+- `2024_mean` - Average score in 2024
+- `2024_median` - Median score in 2024
+- `2024_std_dev` - Standard deviation in 2024
+- `2025_response_count` - Number of responses in 2025
+- `2025_mean` - Average score in 2025
+- `2025_median` - Median score in 2025
+- `2025_std_dev` - Standard deviation in 2025
+- `2025_delta` - Change in mean from 2024 to 2025 (2025 mean - 2024 mean)
+- `2025_std_dev_group_deltas` - Standard deviation of deltas within the question group
+- `significant_change` - "yes" if delta deviates from group mean by more than group std dev, otherwise "no"
+
+**Significance Detection Logic:**
+
+For each question group, the tool calculates:
+1. Mean delta across all questions in the group
+2. Standard deviation of deltas within the group
+
+A question's change is marked as "yes" (significant) if:
+- |question_delta - group_mean_delta| > group_std_dev_delta
+
+This helps identify questions that changed unusually compared to their peer questions.
 
 **Use Cases:**
-- Compare question performance across years
-- Identify highest/lowest rated areas
+- Quick 2024 vs 2025 comparison in single view
+- Identify questions with statistically significant changes
+- Focus attention on outlier improvements or declines
+- Understand which changes are meaningful vs normal variation
 - Track year-over-year improvements or declines
-- Understand score distribution
 
 ### 4. question_group_aggregates.csv
 
@@ -422,6 +440,8 @@ Strong Pearson correlation coefficients between numeric questions (latest year o
 
 Full customer details for respondents whose email domains couldn't be matched to companies.
 
+**Note:** This file is only created if there are unmatched domains. If all respondents match companies, this file won't exist.
+
 **Columns:**
 - `email` - Respondent email address
 - `first_name` - Respondent first name
@@ -438,6 +458,8 @@ Full customer details for respondents whose email domains couldn't be matched to
 ### 9. unknown_questions.csv
 
 Question columns in responses not found in questions.csv metadata.
+
+**Note:** This file is only created if there are unknown questions. If all question columns are recognized, this file won't exist.
 
 **Columns:**
 - `question_column` - Column name from response files
