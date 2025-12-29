@@ -514,12 +514,14 @@ class SurveyAnalyzer:
 
                     # Determine if change is significant
                     significant_change = 'no'
-                    if (question_group in group_delta_stats and
-                        isinstance(delta, (int, float)) and
-                        delta != 'N/A'):
-                        std_delta = group_delta_stats[question_group]['std_delta']
-                        if abs(delta) > std_delta:
+                    if isinstance(delta, (int, float)) and delta != 'N/A':
+                        # Mark as significant if delta exceeds group std dev OR if absolute delta >= 0.5
+                        if abs(delta) >= 0.5:
                             significant_change = 'yes'
+                        elif question_group in group_delta_stats:
+                            std_delta = group_delta_stats[question_group]['std_delta']
+                            if abs(delta) > std_delta:
+                                significant_change = 'yes'
 
                     aggregates.append({
                         'year': curr_year,
