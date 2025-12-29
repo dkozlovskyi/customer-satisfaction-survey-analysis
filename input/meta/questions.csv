@@ -1,15 +1,21 @@
-Short Form,Introduced,Survey Type,Question Group,Original Question
-Team Delivery Timeliness Rating,2024,Team-Level,Team Performance,How satisfied are you with the timeliness of team deliveries?
-Product Quality Satisfaction Rating,2024,Team-Level,Product Quality,How satisfied are you with the quality of delivered products?
-Team Technical Expertise Confidence Rating,2024,Team-Level,Team Performance,How confident are you in the team's technical expertise?
-Team Communication Satisfaction Rating,2024,Team-Level,Team Performance,How satisfied are you with the team's communication?
-Team Transparency Rating,2024,Team-Level,Team Performance,How would you rate the team's transparency?
-Team Effort in Understanding and Clarifying Requests Rating,2024,Team-Level,Team Performance,How satisfied are you with the team's effort to understand your requests?
-Team Collaboration Ability Rating,2024,Team-Level,Team Performance,How would you rate the team's collaboration ability?
-Team Respect Rating,2024,Team-Level,Team Culture,How would you rate the team's respectfulness?
-Team Professional Growth Rating,2024,Team-Level,Team Culture,How satisfied are you with the team's professional growth?
-Team Feedback Seeking and Implementation Rating,2024,Team-Level,Team Culture,How well does the team seek and implement feedback?
-Team Open-Mindedness Rating,2024,Team-Level,Team Culture,How would you rate the team's open-mindedness?
-Opportunities for Team to Assume Additional Responsibilities,2024,Team-Level,Growth Opportunities,Are there opportunities for the team to take on more responsibilities?
-Customer Satisfaction Rating,2024,Company-Level,Customer Satisfaction,Overall how satisfied are you with our services?
-Service Cost-Value Balance Rating,2024,Company-Level,Customer Satisfaction,How would you rate the cost-value balance of our services?
+Short Form,Survey Type,Introduced,Question Group,Original Question
+Team Delivery Timeliness Rating,Team-Level,2024,Software Engineering,How would you rate the team's ability to consistently deliver work within the agreed timeframes?
+Product Quality Satisfaction Rating,Team-Level,2024,Software Engineering,"How satisfied are you with the functionality, reliability, and overall quality of the product delivered by the team?"
+Team Technical Expertise Confidence Rating,Team-Level,2024,Software Engineering,How confident are you in the technical expertise of the team?
+Team Communication Satisfaction Rating,Team-Level,2024,Interpersonal Skills,"How satisfied are you with the team's communication in terms of clarity, conciseness, and timeliness?"
+Team Transparency Rating,Team-Level,2024,Interpersonal Skills,"How would you rate the team's transparency regarding their progress, challenges, and status updates?"
+Team Effort in Understanding and Clarifying Requests Rating,Team-Level,2024,Interpersonal Skills,How would you rate the team's effort to understand your requests and clarify unclear requirements to find effective solutions?
+Team Collaboration Ability Rating,Team-Level,2024,Interpersonal Skills,How would you rate the team’s ability to collaborate with you and/or other teams involved to meet shared objectives?
+Team Respect Rating,Team-Level,2024,Interpersonal Skills,How would you rate the level of respect shown by the team to other stakeholders?
+Team Professional Growth Rating,Team-Level,2024,Growth,How would you rate the professional growth of the team through the last year?
+Team Feedback Seeking and Implementation Rating,Team-Level,2024,Growth,How effectively and frequently does the team seek and implement feedback to improve processes and outcomes?
+Team Open-Mindedness Rating,Team-Level,2024,Growth,How would you rate the level of team open-mindedness to new ideas/solutions?
+AI adoption level,Team-Level,2025,Growth,To what extent does the team's level of AI adoption meet your expectations?
+Opportunities for Team to Assume Additional Responsibilities,Team-Level,2024,Growth,Can you name anything that the team can take under their responsibilities to free your time?
+Gaps in Team Collaboration,Team-Level,2024,Growth,"Can you name anything you're missing while working closely with the team? (skills, attitude, practices, etc.)"
+Customer Satisfaction Rating,Company-Level,2024,CSAT,How satisfied are you with the overall service experience provided by Intelliarts?
+Service Cost-Value Balance Rating,Company-Level,2024,Value for Money,How do you perceive the balance between the service cost and the value you received?
+Additional Services,Company-Level,2024,Company Growth,Can you name any additional service you would like to receive from Intelliarts?
+Service Improvement Suggestions and Additional Feedback,Company-Level,2024,Company Growth,Could you please share any suggestions for improving our service or any additional feedback you may have?
+Rating,Company-Level,2024,NPS,"Customer Loyalty Survey (NPS). Scale from 0 to 10 (Promoter, Passive, Detractor)"
+Response,Company-Level,2024,NPS,Explenation for the Customer Loyalty Survey (NPS)

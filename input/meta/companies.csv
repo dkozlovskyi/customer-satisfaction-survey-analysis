@@ -1,11 +1,18 @@
 Domain,Company,Services,Revenue share,Region,First Interaction Date,Tenure (mo.),Tenure (years),Collaboration Type,Continious collaboration,Engagement Source,Notes
-acme.com,Acme Corporation,Software Development,15%,North America,2021-01-15,48,4.0,Staff Augmentation,Yes,Referral,Key client
-techstart.io,TechStart,Product Development,8%,Europe,2022-06-01,30,2.5,Dedicated Team,Yes,Direct,Growing account
-globalsolutions.net,Global Solutions Inc,Consulting,12%,North America,2020-03-20,68,5.7,Mixed,Yes,Conference,Strategic partner
-innovate.co,Innovate Co,Mobile Development,6%,Asia Pacific,2023-01-10,24,2.0,Project-Based,No,Direct,New client
-financetech.com,FinanceTech Ltd,FinTech Solutions,20%,Europe,2019-05-15,80,6.7,Dedicated Team,Yes,Partnership,Top revenue
-healthsys.org,HealthSys,Healthcare IT,10%,North America,2021-09-01,40,3.3,Staff Augmentation,Yes,Referral,Healthcare domain
-eduplatform.edu,EduPlatform,E-Learning,5%,Europe,2023-03-15,21,1.8,Project-Based,Yes,Direct,Education sector
-retailpro.com,RetailPro Solutions,E-Commerce,9%,North America,2022-02-01,34,2.8,Dedicated Team,Yes,Conference,Retail focus
-autosys.de,AutoSystems GmbH,Automotive Software,11%,Europe,2020-11-10,62,5.2,Mixed,Yes,Partnership,Automotive
-datainc.com,Data Inc,Data Analytics,7%,North America,2022-08-20,28,2.3,Dedicated Team,Yes,Direct,Analytics expertise
+,Valency,software development,0.23%,Canada,2013-11,145.00,12.1,part-time,yes,inbound,"Reference by ""International House"" English school"
+ryffine.com,Ryffine,"software development, XSLT",1.07%,USA,2017-01,107.00,8.9,full-time,yes,reference,Reference by Dell EMC
+optimizely.com,Optimizely,software development,9.15%,USA,2017-10,98.00,8.2,full-time,yes,reference,Reference by Yurii Facturovich --> Rob McDonald (Zaius)
+optimeas.de,optiMEAS,software development,4.07%,Germany,2017-12,96.00,8.0,part-time,yes,reference,Reference by Dmytro Pishchukhin
+hubspot.com,Hubspot,software development,42.73%,USA,2018-01,95.00,7.9,full-time,yes,returning customer,Yurii Facturovich
+now.site,NowSite,software development,9.24%,Canada,2018-01,95.00,7.9,full-time,yes,reference,"Reference by Pavel Kirilov. In 2016, Pavel was the result of an on-site US roadshow. Later Justin acquired now.site."
+verityplatform.com,Verity,software development,7.04%,USA,2019-11,73.00,6.1,full-time,no,returning customer,Dima Rogozin
+fico.com,FICO,XSLT,0.08%,USA,2021-09,51.00,4.3,part-time,no,inbound,XSLT. Reference from Dell EMC subcontractor.
+indigoag.com,Indigo Ag,software development,12.31%,USA,2021-12,48.00,4.0,full-time,yes,returning customer,Yurii Facturovich
+ninetwothree.co,923,AI/ML,5.07%,USA,2022-06,42.00,3.5,full-time,yes,returning customer,Pavel Kirilov
+panther.com,Panther,software development,1.20%,USA,2023-10,26.00,2.2,full-time,yes,returning customer,Reference by Rob McDonnals
+eviq.sa,EVIQ,software development,4.26%,Saudi Arabia,2024-04,20.00,1.7,full-time,yes,inbound,website
+trelationships.com,TreAI,software development,2.33%,USA,2024-05,19.00,1.6,full-time,yes,returning customer,Scott Jarus (ex EV-Connect)
+booleanlogicllc@gmail.com,Boolean Logic,software development,0.69%,USA,2024-10,14.00,1.2,full-time,yes,reference,Reference by Dima Rogozin
+drivegreenlane.com,Greenlane,software development,0.40%,USA,2024-10,14.00,1.2,full-time,yes,returning customer,Raj (ex EV-Connect)
+orienteed.com,Orienteed,XSLT,0.11%,Spain,2024-10,14.00,1.2,part-time,no,inbound,LinkedIn as a channel (direct message to Andrii Zakharchuk)
+reprise.com,Reprise,software development,0.00%,USA,2025-05,7.00,0.6,full-time,yes,returning customer,Yurii Facturovich
