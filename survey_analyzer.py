@@ -910,6 +910,371 @@ class SurveyAnalyzer:
         else:
             return 'Very Weak'
 
+    def sanitize_filename(self, company_name: str) -> str:
+        """Sanitize company name for use as filename"""
+        # Replace spaces and special characters with underscores
+        sanitized = re.sub(r'[^\w\s-]', '', company_name)
+        sanitized = re.sub(r'[\s]+', '_', sanitized)
+        return sanitized.strip('_')
+
+    def generate_account_reports(self) -> None:
+        """Generate one CSV file per customer account with individual analysis"""
+        print("Generating per-account reports...")
+
+        # Get all years
+        all_years = sorted(set(r.year for r in self.normalized_responses))
+        if len(all_years) < 2:
+            print("  ⚠ Need at least 2 years of data for account reports")
+            return
+
+        prev_year = all_years[-2]
+        curr_year = all_years[-1]
+
+        # Group responses by company
+        company_responses = defaultdict(list)
+        for resp in self.normalized_responses:
+            if resp.company_name:  # Only include responses with matched companies
+                company_responses[resp.company_name].append(resp)
+
+        # Generate a report for each company
+        for company_name, responses in sorted(company_responses.items()):
+            self._write_account_report(company_name, responses, prev_year, curr_year)
+
+        print(f"  ✓ Generated {len(company_responses)} account reports\n")
+
+    def _write_account_report(self, company_name: str, responses: List[NormalizedResponse],
+                              prev_year: int, curr_year: int) -> None:
+        """Write a single account report CSV file"""
+        filename = self.sanitize_filename(company_name) + '.csv'
+        file_path = self.output_dir / filename
+
+        with open(file_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+
+            # Section 1: New Submissions
+            self._write_new_submissions_section(writer, responses, prev_year, curr_year)
+
+            # Add blank row between sections
+            writer.writerow([])
+
+            # Section 2: YoY Changes
+            self._write_yoy_changes_section(writer, responses, prev_year, curr_year)
+
+            # Add blank row between sections
+            writer.writerow([])
+
+            # Section 3: NPS Status and Transitions
+            self._write_nps_section(writer, responses, prev_year, curr_year)
+
+            # Add blank row between sections
+            writer.writerow([])
+
+            # Section 4: CSAT Status
+            self._write_csat_section(writer, responses, curr_year)
+
+            # Add blank row between sections
+            writer.writerow([])
+
+            # Section 5: Open Answers
+            self._write_open_answers_section(writer, responses, curr_year)
+
+        print(f"  ✓ Wrote {filename}")
+
+    def _write_new_submissions_section(self, writer, responses: List[NormalizedResponse],
+                                       prev_year: int, curr_year: int) -> None:
+        """Write New Submissions section"""
+        writer.writerow(['### SECTION 1: NEW SUBMISSIONS ###'])
+        writer.writerow(['First-time respondents (not in previous year)'])
+        writer.writerow([])
+
+        # Identify emails in each year
+        prev_emails = set(r.email for r in responses if r.year == prev_year)
+        curr_emails = set(r.email for r in responses if r.year == curr_year)
+        new_emails = curr_emails - prev_emails
+
+        if not new_emails:
+            writer.writerow(['No new submissions found'])
+            return
+
+        # Header
+        writer.writerow(['Email', 'First Name', 'Last Name', 'Question', 'Answer',
+                        'Individual Baseline (Std Dev)', 'Deviation from Baseline',
+                        'Large Deviation (>1 std dev)', 'Low Score (<8)'])
+
+        # Process each new respondent
+        for email in sorted(new_emails):
+            # Get all numeric responses for this person
+            person_responses = [r for r in responses
+                              if r.email == email and r.year == curr_year and r.is_numeric]
+
+            if not person_responses:
+                continue
+
+            # Calculate individual baseline (std dev of their answers)
+            numeric_values = [r.answer_numeric for r in person_responses]
+            individual_baseline = statistics.stdev(numeric_values) if len(numeric_values) > 1 else 0.0
+            mean_value = statistics.mean(numeric_values) if numeric_values else 0.0
+
+            first_name = person_responses[0].first_name
+            last_name = person_responses[0].last_name
+
+            # Write each question answer
+            for resp in sorted(person_responses, key=lambda x: x.question_short_form):
+                deviation = abs(resp.answer_numeric - mean_value)
+                large_deviation = 'yes' if individual_baseline > 0 and deviation > individual_baseline else 'no'
+                low_score = 'yes' if resp.answer_numeric < 8 else 'no'
+
+                writer.writerow([
+                    email,
+                    first_name,
+                    last_name,
+                    resp.question_short_form,
+                    resp.answer_numeric,
+                    round(individual_baseline, 2),
+                    round(deviation, 2),
+                    large_deviation,
+                    low_score
+                ])
+
+    def _write_yoy_changes_section(self, writer, responses: List[NormalizedResponse],
+                                   prev_year: int, curr_year: int) -> None:
+        """Write YoY Changes section"""
+        writer.writerow(['### SECTION 2: YOY CHANGES ###'])
+        writer.writerow(['Returning respondents with year-over-year changes'])
+        writer.writerow([])
+
+        # Identify returning respondents
+        prev_emails = set(r.email for r in responses if r.year == prev_year)
+        curr_emails = set(r.email for r in responses if r.year == curr_year)
+        returning_emails = prev_emails & curr_emails
+
+        if not returning_emails:
+            writer.writerow(['No returning respondents found'])
+            return
+
+        # Build response map: (email, question) -> {year: value}
+        response_map = defaultdict(dict)
+        for resp in responses:
+            if resp.is_numeric and resp.email in returning_emails:
+                key = (resp.email, resp.question_short_form, resp.question_group)
+                response_map[key][resp.year] = resp.answer_numeric
+
+        # Calculate deltas grouped by question group
+        deltas_by_group = defaultdict(list)
+        delta_records = []
+
+        for (email, question, group), year_values in response_map.items():
+            if prev_year in year_values and curr_year in year_values:
+                delta = year_values[curr_year] - year_values[prev_year]
+                deltas_by_group[group].append(delta)
+
+                # Get respondent info
+                resp_info = next((r for r in responses if r.email == email and r.year == curr_year), None)
+                if resp_info:
+                    delta_records.append({
+                        'email': email,
+                        'first_name': resp_info.first_name,
+                        'last_name': resp_info.last_name,
+                        'question': question,
+                        'group': group,
+                        'prev_value': year_values[prev_year],
+                        'curr_value': year_values[curr_year],
+                        'delta': delta
+                    })
+
+        # Calculate baseline (std dev) for each question group
+        group_baselines = {}
+        for group, deltas in deltas_by_group.items():
+            if len(deltas) > 1:
+                group_baselines[group] = statistics.stdev(deltas)
+            else:
+                group_baselines[group] = 0.0
+
+        # Header
+        writer.writerow(['Email', 'First Name', 'Last Name', 'Question Group', 'Question',
+                        f'{prev_year} Value', f'{curr_year} Value', 'Delta',
+                        'Group Baseline (Std Dev)', 'Strong Deviation (>baseline)',
+                        'Large Absolute Change (>1)'])
+
+        # Write delta records sorted by group and email
+        for record in sorted(delta_records, key=lambda x: (x['group'], x['email'], x['question'])):
+            group_baseline = group_baselines.get(record['group'], 0.0)
+            strong_deviation = 'yes' if group_baseline > 0 and abs(record['delta']) > group_baseline else 'no'
+            large_change = 'yes' if abs(record['delta']) > 1 else 'no'
+
+            writer.writerow([
+                record['email'],
+                record['first_name'],
+                record['last_name'],
+                record['group'],
+                record['question'],
+                record['prev_value'],
+                record['curr_value'],
+                round(record['delta'], 2),
+                round(group_baseline, 2),
+                strong_deviation,
+                large_change
+            ])
+
+    def _write_nps_section(self, writer, responses: List[NormalizedResponse],
+                          prev_year: int, curr_year: int) -> None:
+        """Write NPS Status and Transitions section"""
+        writer.writerow(['### SECTION 3: NPS STATUS AND TRANSITIONS ###'])
+        writer.writerow(['NPS classification and year-over-year transitions'])
+        writer.writerow([])
+
+        # Find NPS question - typically "Customer Satisfaction Rating" or contains "NPS"
+        nps_questions = [q for q in self.questions.keys()
+                        if 'Customer Satisfaction' in q or 'NPS' in q.upper()]
+
+        if not nps_questions:
+            writer.writerow(['No NPS question found in metadata'])
+            return
+
+        nps_question = nps_questions[0]
+
+        # Get NPS responses
+        nps_responses = [r for r in responses if r.question_short_form == nps_question and r.is_numeric]
+
+        if not nps_responses:
+            writer.writerow(['No NPS responses found'])
+            return
+
+        # Build NPS map: email -> {year: (score, status)}
+        nps_map = defaultdict(dict)
+
+        def get_nps_status(score):
+            if score >= 9:
+                return 'Promoter'
+            elif score >= 7:
+                return 'Passive'
+            else:
+                return 'Detractor'
+
+        for resp in nps_responses:
+            status = get_nps_status(resp.answer_numeric)
+            nps_map[resp.email][resp.year] = (resp.answer_numeric, status)
+
+        # Header
+        writer.writerow(['Email', 'First Name', 'Last Name',
+                        f'{prev_year} NPS Score', f'{prev_year} Status',
+                        f'{curr_year} NPS Score', f'{curr_year} Status',
+                        'Status Change', 'Category Transition'])
+
+        # Write NPS data
+        for email in sorted(nps_map.keys()):
+            # Get respondent info from current year
+            resp_info = next((r for r in responses if r.email == email and r.year == curr_year), None)
+            if not resp_info:
+                continue
+
+            prev_data = nps_map[email].get(prev_year, (None, None))
+            curr_data = nps_map[email].get(curr_year, (None, None))
+
+            prev_score, prev_status = prev_data
+            curr_score, curr_status = curr_data
+
+            # Determine if status changed
+            if prev_status and curr_status:
+                status_change = 'yes' if prev_status != curr_status else 'no'
+                category_transition = f'{prev_status} → {curr_status}' if prev_status != curr_status else 'No change'
+            else:
+                status_change = 'N/A'
+                category_transition = 'N/A'
+
+            writer.writerow([
+                email,
+                resp_info.first_name,
+                resp_info.last_name,
+                prev_score if prev_score is not None else 'N/A',
+                prev_status if prev_status else 'N/A',
+                curr_score if curr_score is not None else 'N/A',
+                curr_status if curr_status else 'N/A',
+                status_change,
+                category_transition
+            ])
+
+    def _write_csat_section(self, writer, responses: List[NormalizedResponse],
+                           curr_year: int) -> None:
+        """Write CSAT Status section"""
+        writer.writerow(['### SECTION 4: CSAT STATUS ###'])
+        writer.writerow(['Current CSAT score per respondent'])
+        writer.writerow([])
+
+        # CSAT is typically the Customer Satisfaction Rating
+        csat_questions = [q for q in self.questions.keys()
+                         if 'Customer Satisfaction Rating' in q or 'CSAT' in q.upper()]
+
+        if not csat_questions:
+            writer.writerow(['No CSAT question found in metadata'])
+            return
+
+        csat_question = csat_questions[0]
+
+        # Get current year CSAT responses
+        csat_responses = [r for r in responses
+                         if r.question_short_form == csat_question
+                         and r.year == curr_year
+                         and r.is_numeric]
+
+        if not csat_responses:
+            writer.writerow(['No CSAT responses found for current year'])
+            return
+
+        # Header
+        writer.writerow(['Email', 'First Name', 'Last Name', 'CSAT Score'])
+
+        # Write CSAT data
+        for resp in sorted(csat_responses, key=lambda x: x.email):
+            writer.writerow([
+                resp.email,
+                resp.first_name,
+                resp.last_name,
+                resp.answer_numeric
+            ])
+
+    def _write_open_answers_section(self, writer, responses: List[NormalizedResponse],
+                                    curr_year: int) -> None:
+        """Write Open Answers section"""
+        writer.writerow(['### SECTION 5: OPEN ANSWERS ###'])
+        writer.writerow(['Open-ended text responses'])
+        writer.writerow([])
+
+        # Get all text (non-numeric) responses for current year
+        text_responses = defaultdict(lambda: defaultdict(str))
+
+        for resp in responses:
+            if resp.year == curr_year and not resp.is_numeric:
+                text_responses[resp.email][resp.question_short_form] = resp.answer_raw
+
+        if not text_responses:
+            writer.writerow(['No open-ended responses found'])
+            return
+
+        # Identify available open-ended question columns
+        all_text_questions = set()
+        for email_responses in text_responses.values():
+            all_text_questions.update(email_responses.keys())
+
+        # Header - Email, First Name, Last Name, then all text question columns
+        header = ['Email', 'First Name', 'Last Name'] + sorted(all_text_questions)
+        writer.writerow(header)
+
+        # Write open answer data
+        for email in sorted(text_responses.keys()):
+            # Get respondent info
+            resp_info = next((r for r in responses if r.email == email and r.year == curr_year), None)
+            if not resp_info:
+                continue
+
+            row = [email, resp_info.first_name, resp_info.last_name]
+
+            # Add each text question's answer
+            for question in sorted(all_text_questions):
+                row.append(text_responses[email].get(question, ''))
+
+            writer.writerow(row)
+
     def generate_outputs(self) -> None:
         """Generate all output CSV files"""
         print("Generating output files...")
@@ -920,35 +1285,26 @@ class SurveyAnalyzer:
         # 1. Normalized responses
         self._write_normalized_responses()
 
-        # 2. Year-over-year deltas
-        deltas = self.calculate_yoy_deltas()
-        self._write_yoy_deltas(deltas)
-
-        # 3. Question aggregates
+        # 2. Question aggregates
         question_aggs = self.aggregate_by_question()
         self._write_question_aggregates(question_aggs)
 
-        # 4. Question group aggregates
+        # 3. Question group aggregates
         group_aggs = self.aggregate_by_question_group()
         self._write_question_group_aggregates(group_aggs)
 
-        # 5. Segment aggregates
-        segment_aggs = self.aggregate_by_segment()
-        self._write_segment_aggregates(segment_aggs)
-
-        # 6. Account aggregates
-        account_aggs = self.aggregate_by_account()
-        self._write_account_aggregates(account_aggs)
-
-        # 7. Correlations
+        # 4. Correlations
         correlations = self.calculate_correlations()
         self._write_correlations(correlations)
 
-        # 8. Unmatched domains (only if there are unmatched domains)
+        # 5. Per-account reports with individual analysis
+        self.generate_account_reports()
+
+        # 6. Unmatched domains (only if there are unmatched domains)
         if self.unmatched_domains:
             self._write_unmatched_domains()
 
-        # 9. Unknown questions (only if there are unknown questions)
+        # 7. Unknown questions (only if there are unknown questions)
         if self.unknown_questions:
             self._write_unknown_questions()
 
