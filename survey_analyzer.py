@@ -987,8 +987,7 @@ class SurveyAnalyzer:
     def _write_responses_section(self, writer, responses: List[NormalizedResponse],
                                  prev_year: int, curr_year: int) -> None:
         """Write RESPONSES section showing all responses for all respondents"""
-        writer.writerow(['### RESPONSES ###'])
-        writer.writerow(['All responses from all respondents for this account'])
+        writer.writerow(['### SECTION 1: All Account Responses ###'])
 
         # Collect all questions across all respondents
         all_questions = set()
@@ -1118,8 +1117,7 @@ class SurveyAnalyzer:
     def _write_yoy_changes_section(self, writer, responses: List[NormalizedResponse],
                                    prev_year: int, curr_year: int) -> None:
         """Write YoY Changes section - only showing significant changes"""
-        writer.writerow(['### SECTION 1: YOY CHANGES ###'])
-        writer.writerow(['Returning respondents with significant year-over-year changes'])
+        writer.writerow(['### SECTION 2: Significant YoY Changes ###'])
 
         # Identify returning respondents
         prev_emails = set(r.email for r in responses if r.year == prev_year)
@@ -1211,8 +1209,7 @@ class SurveyAnalyzer:
     def _write_nps_section(self, writer, responses: List[NormalizedResponse],
                           prev_year: int, curr_year: int) -> None:
         """Write NPS Status and Transitions section"""
-        writer.writerow(['### SECTION 2: NPS STATUS AND TRANSITIONS ###'])
-        writer.writerow(['NPS classification and year-over-year transitions'])
+        writer.writerow(['### SECTION 3: NPS Status & YoY Transitions ###'])
 
         # Find NPS question - use "Rating" label
         nps_question = 'Rating'
@@ -1286,8 +1283,7 @@ class SurveyAnalyzer:
     def _write_csat_section(self, writer, responses: List[NormalizedResponse],
                            curr_year: int) -> None:
         """Write CSAT Status section"""
-        writer.writerow(['### SECTION 3: CSAT STATUS ###'])
-        writer.writerow(['Current CSAT score per respondent'])
+        writer.writerow(['### SECTION 4: CSAT Status & Transitions ###'])
 
         # Use "Customer Satisfaction Rating" label
         csat_question = 'Customer Satisfaction Rating'
@@ -1322,8 +1318,7 @@ class SurveyAnalyzer:
     def _write_open_answers_section(self, writer, responses: List[NormalizedResponse],
                                     curr_year: int) -> None:
         """Write Open Answers section"""
-        writer.writerow(['### SECTION 4: OPEN ANSWERS ###'])
-        writer.writerow(['Open-ended text responses'])
+        writer.writerow(['### SECTION 5: Open-ended Text Responses ###'])
 
         # Get all text (non-numeric) responses for current year
         text_responses = defaultdict(lambda: defaultdict(str))
