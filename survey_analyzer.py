@@ -982,7 +982,7 @@ class SurveyAnalyzer:
 
     def _write_new_submissions_section(self, writer, responses: List[NormalizedResponse],
                                        prev_year: int, curr_year: int) -> None:
-        """Write New Submissions section"""
+        """Write New Submissions section with questions as columns"""
         writer.writerow(['### SECTION 1: NEW SUBMISSIONS ###'])
         writer.writerow(['First-time respondents (not in previous year)'])
         writer.writerow([])
@@ -996,13 +996,11 @@ class SurveyAnalyzer:
             writer.writerow(['No new submissions found'])
             return
 
-        # Header
-        writer.writerow(['Email', 'First Name', 'Last Name', 'Question', 'Answer',
-                        'Individual Baseline (Std Dev)', 'Deviation from Baseline',
-                        'Large Deviation (>1 std dev)', 'Low Score (<8)'])
+        # Collect all questions across all new respondents
+        all_questions = set()
+        respondent_data = {}
 
-        # Process each new respondent
-        for email in sorted(new_emails):
+        for email in new_emails:
             # Get all numeric responses for this person
             person_responses = [r for r in responses
                               if r.email == email and r.year == curr_year and r.is_numeric]
@@ -1015,26 +1013,54 @@ class SurveyAnalyzer:
             individual_baseline = statistics.stdev(numeric_values) if len(numeric_values) > 1 else 0.0
             mean_value = statistics.mean(numeric_values) if numeric_values else 0.0
 
-            first_name = person_responses[0].first_name
-            last_name = person_responses[0].last_name
+            # Store respondent info and answers
+            answer_map = {r.question_short_form: r.answer_numeric for r in person_responses}
+            all_questions.update(answer_map.keys())
 
-            # Write each question answer
-            for resp in sorted(person_responses, key=lambda x: x.question_short_form):
-                deviation = abs(resp.answer_numeric - mean_value)
-                large_deviation = 'yes' if individual_baseline > 0 and deviation > individual_baseline else 'no'
-                low_score = 'yes' if resp.answer_numeric < 8 else 'no'
+            # Count low scores (<8)
+            low_score_count = sum(1 for v in numeric_values if v < 8)
 
-                writer.writerow([
-                    email,
-                    first_name,
-                    last_name,
-                    resp.question_short_form,
-                    resp.answer_numeric,
-                    round(individual_baseline, 2),
-                    round(deviation, 2),
-                    large_deviation,
-                    low_score
-                ])
+            respondent_data[email] = {
+                'first_name': person_responses[0].first_name,
+                'last_name': person_responses[0].last_name,
+                'baseline': individual_baseline,
+                'mean': mean_value,
+                'answers': answer_map,
+                'low_score_count': low_score_count,
+                'lowest_score': min(numeric_values),
+                'highest_score': max(numeric_values)
+            }
+
+        if not respondent_data:
+            writer.writerow(['No new submissions with numeric responses found'])
+            return
+
+        # Sort questions for consistent column order
+        sorted_questions = sorted(all_questions)
+
+        # Write header
+        header = ['Email', 'First Name', 'Last Name', 'Individual Baseline (Std Dev)',
+                 'Lowest Score', 'Highest Score', 'Count Scores <8'] + sorted_questions
+        writer.writerow(header)
+
+        # Write data rows
+        for email in sorted(respondent_data.keys()):
+            data = respondent_data[email]
+            row = [
+                email,
+                data['first_name'],
+                data['last_name'],
+                round(data['baseline'], 2),
+                data['lowest_score'],
+                data['highest_score'],
+                data['low_score_count']
+            ]
+
+            # Add answer for each question (or empty if not answered)
+            for question in sorted_questions:
+                row.append(data['answers'].get(question, ''))
+
+            writer.writerow(row)
 
     def _write_yoy_changes_section(self, writer, responses: List[NormalizedResponse],
                                    prev_year: int, curr_year: int) -> None:
