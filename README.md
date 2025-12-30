@@ -262,23 +262,27 @@ Each customer account gets a dedicated CSV file named using the company name fro
 
 Identifies first-time respondents (present in current year but not previous year) with individual baseline analysis.
 
-**Purpose:** Understand new respondents' satisfaction levels and identify areas where they deviate from their personal baseline or score particularly low.
+**Purpose:** Understand new respondents' satisfaction levels and identify areas where they score particularly low.
+
+**Format:** One row per new respondent with all questions as columns (horizontal layout).
 
 **Columns:**
 - `Email` - Respondent email
 - `First Name` - Respondent first name
 - `Last Name` - Respondent last name
-- `Question` - Question short form
-- `Answer` - Numeric answer value
 - `Individual Baseline (Std Dev)` - Standard deviation of this person's answers (their personal variability)
-- `Deviation from Baseline` - How far this answer is from their personal mean
-- `Large Deviation (>1 std dev)` - "yes" if deviation exceeds their baseline, otherwise "no"
-- `Low Score (<8)` - "yes" if answer is below 8, otherwise "no"
+- `Lowest Score` - Minimum score across all their answers
+- `Highest Score` - Maximum score across all their answers
+- `Count Scores <8` - Number of questions where they scored below 8
+- `[Question 1]` - Answer to first question (e.g., "Customer Satisfaction Rating")
+- `[Question 2]` - Answer to second question (e.g., "Team Delivery Timeliness Rating")
+- ... (additional columns for each question)
 
 **Key Insights:**
-- Identify new respondents with concerning low scores
-- Detect questions where new respondents show unusual variation
-- Each row represents one respondent's answer to one question
+- Each row = one new respondent with all their answers visible at a glance
+- Quickly identify respondents with multiple low scores (Count Scores <8)
+- Spot patterns across questions in a single row
+- Compare baseline variability across new respondents
 
 #### Section 2: YoY Changes
 
