@@ -212,11 +212,11 @@ Calculating correlations...
   ✓ Calculated 156 correlations
 
 Generating per-account reports...
-  ✓ Wrote Acme_Corporation.csv
-  ✓ Wrote TechStart.csv
-  ✓ Wrote Global_Solutions_Inc.csv
+  ✓ Wrote accounts/Acme_Corporation.csv
+  ✓ Wrote accounts/TechStart.csv
+  ✓ Wrote accounts/Global_Solutions_Inc.csv
   [... additional account files ...]
-  ✓ Generated 25 account reports
+  ✓ Generated 25 account reports in accounts/
 
   ✓ Wrote normalized_responses.csv
   ✓ Wrote question_aggregates.csv
@@ -245,18 +245,35 @@ Unknown questions found:     0
 
 All outputs are generated in the `output/` directory (or custom path specified).
 
+### Directory Structure
+
+```
+output/
+├── accounts/
+│   ├── Acme_Corporation.csv
+│   ├── TechStart.csv
+│   └── ... (one file per customer)
+├── normalized_responses.csv
+├── question_aggregates.csv
+├── question_group_aggregates.csv
+├── correlations.csv
+└── unmatched_domains.csv (if any)
+```
+
 ### Overview
 
 The tool generates two types of outputs:
 
-1. **Per-Account Reports**: Individual CSV files for each customer company (e.g., `Acme_Corporation.csv`, `TechStart.csv`)
-2. **Global Analysis Files**: Cross-company aggregates and correlations
+1. **Per-Account Reports** (in `accounts/` subfolder): Individual CSV files for each customer company
+2. **Global Analysis Files** (in `output/` root): Cross-company aggregates and correlations
 
 ### Per-Account Reports (One file per customer)
 
-Each customer account gets a dedicated CSV file named using the company name from `companies.csv`. These files contain 5 sections analyzing individual respondents without aggregation.
+Each customer account gets a dedicated CSV file in the `accounts/` subdirectory, named using the company name from `companies.csv`. These files contain 5 sections analyzing individual respondents without aggregation.
 
 **File Naming:** Company names are sanitized (spaces → underscores, special characters removed) to create valid filenames.
+
+**Location:** All account files are stored in `output/accounts/` for better organization.
 
 #### Section 1: New Submissions
 

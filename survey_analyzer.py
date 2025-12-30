@@ -930,6 +930,10 @@ class SurveyAnalyzer:
         prev_year = all_years[-2]
         curr_year = all_years[-1]
 
+        # Create accounts subdirectory
+        accounts_dir = self.output_dir / 'accounts'
+        accounts_dir.mkdir(parents=True, exist_ok=True)
+
         # Group responses by company
         company_responses = defaultdict(list)
         for resp in self.normalized_responses:
@@ -938,15 +942,15 @@ class SurveyAnalyzer:
 
         # Generate a report for each company
         for company_name, responses in sorted(company_responses.items()):
-            self._write_account_report(company_name, responses, prev_year, curr_year)
+            self._write_account_report(company_name, responses, prev_year, curr_year, accounts_dir)
 
-        print(f"  ✓ Generated {len(company_responses)} account reports\n")
+        print(f"  ✓ Generated {len(company_responses)} account reports in accounts/\n")
 
     def _write_account_report(self, company_name: str, responses: List[NormalizedResponse],
-                              prev_year: int, curr_year: int) -> None:
+                              prev_year: int, curr_year: int, accounts_dir: Path) -> None:
         """Write a single account report CSV file"""
         filename = self.sanitize_filename(company_name) + '.csv'
-        file_path = self.output_dir / filename
+        file_path = accounts_dir / filename
 
         with open(file_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
@@ -978,7 +982,7 @@ class SurveyAnalyzer:
             # Section 5: Open Answers
             self._write_open_answers_section(writer, responses, curr_year)
 
-        print(f"  ✓ Wrote {filename}")
+        print(f"  ✓ Wrote accounts/{filename}")
 
     def _write_new_submissions_section(self, writer, responses: List[NormalizedResponse],
                                        prev_year: int, curr_year: int) -> None:
