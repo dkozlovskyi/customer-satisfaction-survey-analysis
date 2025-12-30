@@ -974,7 +974,7 @@ class SurveyAnalyzer:
             writer.writerow([])
 
             # Section 3: CSAT Status
-            self._write_csat_section(writer, responses, curr_year)
+            self._write_csat_section(writer, responses, curr_year, prev_year)
 
             # Add blank row between sections
             writer.writerow([])
@@ -999,8 +999,6 @@ class SurveyAnalyzer:
                 # Store respondent info and answers
                 if resp.email not in respondent_data:
                     respondent_data[resp.email] = {
-                        'first_name': resp.first_name,
-                        'last_name': resp.last_name,
                         'answers': {}
                     }
 
@@ -1015,17 +1013,13 @@ class SurveyAnalyzer:
         sorted_questions = sorted(all_questions)
 
         # Write header
-        header = ['Email', 'First Name', 'Last Name'] + sorted_questions
+        header = ['Email'] + sorted_questions
         writer.writerow(header)
 
         # Write data rows
         for email in sorted(respondent_data.keys()):
             data = respondent_data[email]
-            row = [
-                email,
-                data['first_name'],
-                data['last_name']
-            ]
+            row = [email]
 
             # Add answer for each question (or empty if not answered)
             for question in sorted_questions:
@@ -1187,7 +1181,7 @@ class SurveyAnalyzer:
             return
 
         # Header
-        writer.writerow(['Email', 'First Name', 'Last Name', 'Question Group', 'Question',
+        writer.writerow(['Email', 'Question Group', 'Question',
                         f'{prev_year} Value', f'{curr_year} Value', 'Delta',
                         'Group Baseline (Std Dev)', 'Strong Deviation (>baseline)',
                         'Large Absolute Change (>1)'])
@@ -1196,8 +1190,6 @@ class SurveyAnalyzer:
         for record in sorted(significant_records, key=lambda x: (x['group'], x['email'], x['question'])):
             writer.writerow([
                 record['email'],
-                record['first_name'],
-                record['last_name'],
                 record['group'],
                 record['question'],
                 record['prev_value'],
@@ -1245,18 +1237,13 @@ class SurveyAnalyzer:
             nps_map[resp.email][resp.year] = (resp.answer_numeric, status)
 
         # Header
-        writer.writerow(['Email', 'First Name', 'Last Name',
+        writer.writerow(['Email',
                         f'{prev_year} NPS Score', f'{prev_year} Status',
                         f'{curr_year} NPS Score', f'{curr_year} Status',
                         'Status Change', 'Category Transition'])
 
         # Write NPS data - ordered by email
         for email in sorted(nps_map.keys()):
-            # Get respondent info from current year
-            resp_info = next((r for r in responses if r.email == email and r.year == curr_year), None)
-            if not resp_info:
-                continue
-
             prev_data = nps_map[email].get(prev_year, (None, None))
             curr_data = nps_map[email].get(curr_year, (None, None))
 
@@ -1273,8 +1260,6 @@ class SurveyAnalyzer:
 
             writer.writerow([
                 email,
-                resp_info.first_name,
-                resp_info.last_name,
                 prev_score if prev_score is not None else 'N/A',
                 prev_status if prev_status else 'N/A',
                 curr_score if curr_score is not None else 'N/A',
@@ -1284,10 +1269,10 @@ class SurveyAnalyzer:
             ])
 
     def _write_csat_section(self, writer, responses: List[NormalizedResponse],
-                           curr_year: int) -> None:
-        """Write CSAT Status section"""
+                           curr_year: int, prev_year: int) -> None:
+        """Write CSAT Status section with YoY transitions"""
         writer.writerow(['### SECTION 3: CSAT STATUS ###'])
-        writer.writerow(['Current CSAT score per respondent'])
+        writer.writerow(['CSAT scores and year-over-year transitions'])
 
         # Use "Customer Satisfaction Rating" label
         csat_question = 'Customer Satisfaction Rating'
@@ -1297,26 +1282,43 @@ class SurveyAnalyzer:
             writer.writerow(['No CSAT question (Customer Satisfaction Rating) found in metadata'])
             return
 
-        # Get current year CSAT responses
+        # Get CSAT responses for both years
         csat_responses = [r for r in responses
                          if r.question_short_form == csat_question
-                         and r.year == curr_year
                          and r.is_numeric]
 
         if not csat_responses:
-            writer.writerow(['No CSAT responses found for current year'])
+            writer.writerow(['No CSAT responses found'])
             return
 
+        # Build CSAT map: email -> {year: score}
+        csat_map = defaultdict(dict)
+
+        for resp in csat_responses:
+            csat_map[resp.email][resp.year] = resp.answer_numeric
+
         # Header
-        writer.writerow(['Email', 'First Name', 'Last Name', 'CSAT Score'])
+        writer.writerow(['Email',
+                        f'{prev_year} CSAT Score',
+                        f'{curr_year} CSAT Score',
+                        'Delta'])
 
         # Write CSAT data - ordered by email
-        for resp in sorted(csat_responses, key=lambda x: x.email):
+        for email in sorted(csat_map.keys()):
+            prev_score = csat_map[email].get(prev_year, None)
+            curr_score = csat_map[email].get(curr_year, None)
+
+            # Calculate delta if both scores exist
+            if prev_score is not None and curr_score is not None:
+                delta = round(curr_score - prev_score, 2)
+            else:
+                delta = 'N/A'
+
             writer.writerow([
-                resp.email,
-                resp.first_name,
-                resp.last_name,
-                resp.answer_numeric
+                email,
+                prev_score if prev_score is not None else 'N/A',
+                curr_score if curr_score is not None else 'N/A',
+                delta
             ])
 
     def _write_open_answers_section(self, writer, responses: List[NormalizedResponse],
@@ -1341,18 +1343,13 @@ class SurveyAnalyzer:
         for email_responses in text_responses.values():
             all_text_questions.update(email_responses.keys())
 
-        # Header - Email, First Name, Last Name, then all text question columns
-        header = ['Email', 'First Name', 'Last Name'] + sorted(all_text_questions)
+        # Header - Email, then all text question columns
+        header = ['Email'] + sorted(all_text_questions)
         writer.writerow(header)
 
         # Write open answer data
         for email in sorted(text_responses.keys()):
-            # Get respondent info
-            resp_info = next((r for r in responses if r.email == email and r.year == curr_year), None)
-            if not resp_info:
-                continue
-
-            row = [email, resp_info.first_name, resp_info.last_name]
+            row = [email]
 
             # Add each text question's answer
             for question in sorted(all_text_questions):
