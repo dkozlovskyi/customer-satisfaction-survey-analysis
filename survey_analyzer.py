@@ -1029,7 +1029,7 @@ class SurveyAnalyzer:
     def _write_new_submissions_section(self, writer, responses: List[NormalizedResponse],
                                        prev_year: int, curr_year: int) -> None:
         """Write New Submissions section with questions as columns"""
-        writer.writerow(['### SECTION 1: NEW SUBMISSIONS ###'])
+        writer.writerow(['### SECTION 1: New Submissions ###'])
         writer.writerow(['First-time respondents (not in previous year)'])
         writer.writerow([])
 
@@ -1111,7 +1111,7 @@ class SurveyAnalyzer:
     def _write_yoy_changes_section(self, writer, responses: List[NormalizedResponse],
                                    prev_year: int, curr_year: int) -> None:
         """Write YoY Changes section - only showing significant changes"""
-        writer.writerow(['### SECTION 1: SIGNIFICANT YOY CHANGES ###'])
+        writer.writerow(['### SECTION 1: Significant YoY Changes ###'])
 
         # Identify returning respondents
         prev_emails = set(r.email for r in responses if r.year == prev_year)
@@ -1182,7 +1182,7 @@ class SurveyAnalyzer:
     def _write_nps_section(self, writer, responses: List[NormalizedResponse],
                           prev_year: int, curr_year: int) -> None:
         """Write NPS Status and Transitions section"""
-        writer.writerow(['### SECTION 2: NPS STATUS & YOY TRANSITIONS ###'])
+        writer.writerow(['### SECTION 2: NPS Status & YoY Transitions ###'])
 
         # Find NPS question - use "Rating" label
         nps_question = 'Rating'
@@ -1224,7 +1224,7 @@ class SurveyAnalyzer:
     def _write_csat_section(self, writer, responses: List[NormalizedResponse],
                            curr_year: int, prev_year: int) -> None:
         """Write CSAT Status section with YoY transitions"""
-        writer.writerow(['### SECTION 3: CSAT STATUS & TRANSITIONS ###'])
+        writer.writerow(['### SECTION 3: CSAT Status & Transitions ###'])
 
         # Use "Customer Satisfaction Rating" label
         csat_question = 'Customer Satisfaction Rating'
