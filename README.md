@@ -5,9 +5,14 @@ A Python-based CLI tool for automated analysis of customer satisfaction surveys 
 ## Features
 
 - **Automated Data Linking**: Links survey responses with company metadata via email domain
-- **Year-over-Year Analysis**: Calculates deltas at respondent/question level
-- **Multi-Level Aggregation**: Generates insights at question, question-group, and segment levels
-- **Correlation Analysis**: Identifies relationships between different survey questions
+- **Per-Account Reports**: Generates individual CSV files for each customer account with comprehensive analysis
+- **Individual Analysis**: Analyzes each respondent independently without aggregation to preserve unique perspectives
+- **New Submissions Tracking**: Identifies first-time respondents with baseline deviation analysis
+- **YoY Changes Analysis**: Tracks returning respondents with question-level deltas and group baselines
+- **NPS & CSAT Tracking**: Monitors NPS status transitions and CSAT scores per respondent
+- **Open-Ended Responses**: Captures all text responses in structured format
+- **Statistical Aggregation**: Generates insights at question and question-group levels
+- **Correlation Analysis**: Identifies strong relationships between different survey questions
 - **Comprehensive Output**: Produces clean CSV files ready for visualization in spreadsheet tools
 - **Validation & Error Tracking**: Tracks unmatched domains and unknown questions
 
@@ -197,29 +202,27 @@ Normalizing responses and linking with companies...
   ✓ 10 responses without company match
 
 Generating output files...
-Calculating year-over-year deltas...
-  ✓ Calculated 350 year-over-year deltas
-
 Aggregating by question...
   ✓ Created 28 question aggregates
 
 Aggregating by question group...
   ✓ Created 12 question group aggregates
 
-Aggregating by segment...
-  ✓ Created 85 segment aggregates
-
 Calculating correlations...
   ✓ Calculated 156 correlations
 
+Generating per-account reports...
+  ✓ Wrote Acme_Corporation.csv
+  ✓ Wrote TechStart.csv
+  ✓ Wrote Global_Solutions_Inc.csv
+  [... additional account files ...]
+  ✓ Generated 25 account reports
+
   ✓ Wrote normalized_responses.csv
-  ✓ Wrote yoy_deltas.csv
   ✓ Wrote question_aggregates.csv
   ✓ Wrote question_group_aggregates.csv
-  ✓ Wrote segment_aggregates.csv
   ✓ Wrote correlations.csv
   ✓ Wrote unmatched_domains.csv
-  ✓ Wrote unknown_questions.csv
 
 ✓ All output files generated in: output
 
@@ -241,6 +244,132 @@ Unknown questions found:     0
 ## Output Files
 
 All outputs are generated in the `output/` directory (or custom path specified).
+
+### Overview
+
+The tool generates two types of outputs:
+
+1. **Per-Account Reports**: Individual CSV files for each customer company (e.g., `Acme_Corporation.csv`, `TechStart.csv`)
+2. **Global Analysis Files**: Cross-company aggregates and correlations
+
+### Per-Account Reports (One file per customer)
+
+Each customer account gets a dedicated CSV file named using the company name from `companies.csv`. These files contain 5 sections analyzing individual respondents without aggregation.
+
+**File Naming:** Company names are sanitized (spaces → underscores, special characters removed) to create valid filenames.
+
+#### Section 1: New Submissions
+
+Identifies first-time respondents (present in current year but not previous year) with individual baseline analysis.
+
+**Purpose:** Understand new respondents' satisfaction levels and identify areas where they deviate from their personal baseline or score particularly low.
+
+**Columns:**
+- `Email` - Respondent email
+- `First Name` - Respondent first name
+- `Last Name` - Respondent last name
+- `Question` - Question short form
+- `Answer` - Numeric answer value
+- `Individual Baseline (Std Dev)` - Standard deviation of this person's answers (their personal variability)
+- `Deviation from Baseline` - How far this answer is from their personal mean
+- `Large Deviation (>1 std dev)` - "yes" if deviation exceeds their baseline, otherwise "no"
+- `Low Score (<8)` - "yes" if answer is below 8, otherwise "no"
+
+**Key Insights:**
+- Identify new respondents with concerning low scores
+- Detect questions where new respondents show unusual variation
+- Each row represents one respondent's answer to one question
+
+#### Section 2: YoY Changes
+
+Tracks returning respondents (present in both years) with question-level deltas and group-based baseline analysis.
+
+**Purpose:** Identify improvement or decline in satisfaction for returning respondents, using question group baselines to detect unusual changes.
+
+**Columns:**
+- `Email` - Respondent email
+- `First Name` - Respondent first name
+- `Last Name` - Respondent last name
+- `Question Group` - Question group (e.g., "Team Performance")
+- `Question` - Question short form
+- `{prev_year} Value` - Score in previous year
+- `{curr_year} Value` - Score in current year
+- `Delta` - Change (current - previous)
+- `Group Baseline (Std Dev)` - Standard deviation of deltas within this question group (across all account respondents)
+- `Strong Deviation (>baseline)` - "yes" if |delta| exceeds group baseline
+- `Large Absolute Change (>1)` - "yes" if |delta| > 1
+
+**Key Insights:**
+- Focus on deltas that exceed typical variability for the question group
+- Identify absolute changes > 1 point (always significant)
+- Track which respondents improved vs declined
+
+#### Section 3: NPS Status and Transitions
+
+Monitors NPS (Net Promoter Score) classification and year-over-year transitions.
+
+**Purpose:** Track NPS category changes (Detractor → Passive → Promoter) to identify satisfaction trajectory.
+
+**NPS Classification:**
+- **Promoter**: Score 9-10
+- **Passive**: Score 7-8
+- **Detractor**: Score 0-6
+
+**Columns:**
+- `Email` - Respondent email
+- `First Name` - Respondent first name
+- `Last Name` - Respondent last name
+- `{prev_year} NPS Score` - NPS score in previous year (or N/A)
+- `{prev_year} Status` - NPS category in previous year
+- `{curr_year} NPS Score` - NPS score in current year
+- `{curr_year} Status` - NPS category in current year
+- `Status Change` - "yes" if category changed, "no" if same, "N/A" if not applicable
+- `Category Transition` - Description of transition (e.g., "Detractor → Promoter") or "No change"
+
+**Key Insights:**
+- Identify promoters at risk of becoming passive/detractors
+- Celebrate detractors who became promoters
+- Track overall NPS trajectory per respondent
+
+#### Section 4: CSAT Status
+
+Current Customer Satisfaction (CSAT) score for each respondent.
+
+**Purpose:** Simple view of current satisfaction levels per respondent.
+
+**Columns:**
+- `Email` - Respondent email
+- `First Name` - Respondent first name
+- `Last Name` - Respondent last name
+- `CSAT Score` - Current year CSAT score
+
+**Key Insights:**
+- Quick reference for current satisfaction
+- No aggregation - each respondent's individual score
+- Useful for account manager follow-up
+
+#### Section 5: Open Answers
+
+All open-ended text responses for current year.
+
+**Purpose:** Capture qualitative feedback and suggestions.
+
+**Columns:**
+- `Email` - Respondent email
+- `First Name` - Respondent first name
+- `Last Name` - Respondent last name
+- `[Question 1]` - Answer to first open-ended question
+- `[Question 2]` - Answer to second open-ended question
+- ... (additional columns for each open-ended question found)
+
+**Key Insights:**
+- Qualitative context for numeric scores
+- Specific suggestions and feedback
+- Identify themes across respondents
+
+---
+
+### Global Analysis Files
 
 ### 1. normalized_responses.csv
 
@@ -270,28 +399,7 @@ Long-format normalized data with all responses and linked metadata.
 - Filtering specific respondents or questions
 - Data quality validation
 
-### 2. yoy_deltas.csv
-
-Year-over-year changes at the respondent/question level (numeric questions only).
-
-**Columns:**
-- `email` - Respondent email
-- `company_name` - Company name
-- `question_short_form` - Question identifier
-- `question_group` - Question group
-- `previous_year` - Earlier year
-- `previous_value` - Score in earlier year
-- `current_year` - Later year
-- `current_value` - Score in later year
-- `delta` - Absolute change (current - previous)
-- `delta_pct` - Percentage change
-
-**Use Cases:**
-- Identify respondents with improved/declined sentiment
-- Track individual company progress
-- Flag significant changes for follow-up
-
-### 3. question_aggregates.csv
+### 2. question_aggregates.csv
 
 Statistical aggregation by question with 2024/2025 comparison and statistical significance detection.
 
@@ -332,7 +440,7 @@ This dual-criteria approach ensures that:
 - Understand which changes are meaningful vs normal variation
 - Track year-over-year improvements or declines
 
-### 4. question_group_aggregates.csv
+### 3. question_group_aggregates.csv
 
 Statistical aggregation by question group with 2024/2025 comparison and survey type-based significance detection.
 
@@ -371,54 +479,7 @@ This helps identify question groups with unusual changes compared to other group
 - Identify which question groups changed significantly
 - Executive summaries
 
-### 5. segment_aggregates.csv
-
-Aggregation by customer segments (region, survey type).
-
-**Columns:**
-- `year` - Survey year
-- `segment_type` - Type of segmentation (e.g., "Region", "Survey Type")
-- `segment_value` - Specific segment (e.g., "North America", "Team-Level")
-- `question_short_form` - Question identifier
-- `response_count` - Number of responses in segment
-- `mean` - Average score for segment
-- `median` - Median score for segment
-
-**Use Cases:**
-- Compare regional performance
-- Identify segment-specific issues
-- Targeted improvement initiatives
-
-### 6. account_aggregates.csv
-
-Aggregation by company account showing all respondents per account.
-
-**Columns:**
-- `year` - Survey year
-- `account_domain` - Company email domain
-- `company_name` - Company name
-- `question_short_form` - Question identifier
-- `respondent_count` - Number of unique respondents from this account
-- `respondents` - Semicolon-separated list of all respondents (Name and email)
-- `response_count` - Total number of numeric responses
-- `mean` - Average score for this account/question
-- `median` - Median score
-- `min` - Minimum score
-- `max` - Maximum score
-
-**Use Cases:**
-- Analyze satisfaction at the company level
-- See which employees from each company responded
-- Identify accounts with multiple respondents
-- Compare scores across different accounts
-- Account-specific reporting and follow-up
-
-**Example:**
-For Acme Corporation with 3 respondents (John, Sarah, Robert) answering "Product Quality":
-- Shows all 3 names with emails in the respondents column
-- Calculates aggregate statistics across all their responses
-
-### 7. correlations.csv
+### 4. correlations.csv
 
 Strong Pearson correlation coefficients between numeric questions (latest year only).
 
@@ -455,7 +516,7 @@ Strong Pearson correlation coefficients between numeric questions (latest year o
 - Compare correlation patterns across regions and tenure groups
 - Hypothesis generation for deeper analysis
 
-### 8. unmatched_domains.csv
+### 5. unmatched_domains.csv
 
 Full customer details for respondents whose email domains couldn't be matched to companies.
 
@@ -474,7 +535,7 @@ Full customer details for respondents whose email domains couldn't be matched to
 - Update companies.csv for future runs
 - Data quality improvement
 
-### 9. unknown_questions.csv
+### 6. unknown_questions.csv
 
 Question columns in responses not found in questions.csv metadata.
 
@@ -530,7 +591,9 @@ Question columns in responses not found in questions.csv metadata.
          ▼
 ┌─────────────────┐
 │  Analysis       │
-│  - YoY deltas   │
+│  - Account      │
+│    reports (5   │
+│    sections)    │
 │  - Aggregations │
 │  - Correlations │
 └────────┬────────┘
@@ -538,7 +601,9 @@ Question columns in responses not found in questions.csv metadata.
          ▼
 ┌─────────────────┐
 │  Output CSVs    │
-│  - 8 files      │
+│  - Per-account  │
+│    files        │
+│  - Global files │
 └─────────────────┘
 ```
 
@@ -578,17 +643,20 @@ The tool validates inputs and provides clear error messages:
 
 The tool is designed to be extensible. Common customizations:
 
-### Adding New Segments
+### Adding New Account Report Sections
 
-Edit the `aggregate_by_segment()` method to add new segmentation dimensions:
+Add new sections to per-account reports by creating a new method:
 
 ```python
-# By Collaboration Type
-groups = defaultdict(list)
-for resp in self.normalized_responses:
-    if resp.is_numeric and resp.collaboration_type:
-        key = (resp.year, 'Collaboration Type', resp.collaboration_type, resp.question_short_form)
-        groups[key].append(resp.answer_numeric)
+def _write_custom_section(self, writer, responses, curr_year):
+    """Write a custom analysis section"""
+    writer.writerow(['### CUSTOM SECTION ###'])
+    writer.writerow(['Description of analysis'])
+    writer.writerow([])
+    # ... your analysis logic ...
+
+# Then call it from _write_account_report():
+self._write_custom_section(writer, responses, curr_year)
 ```
 
 ### Custom Statistical Measures
