@@ -955,34 +955,83 @@ class SurveyAnalyzer:
         with open(file_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
 
-            # Section 1: New Submissions
-            self._write_new_submissions_section(writer, responses, prev_year, curr_year)
+            # Top-level: Responses table
+            self._write_responses_section(writer, responses, prev_year, curr_year)
 
             # Add blank row between sections
             writer.writerow([])
 
-            # Section 2: YoY Changes
+            # Section 1: YoY Changes
             self._write_yoy_changes_section(writer, responses, prev_year, curr_year)
 
             # Add blank row between sections
             writer.writerow([])
 
-            # Section 3: NPS Status and Transitions
+            # Section 2: NPS Status and Transitions
             self._write_nps_section(writer, responses, prev_year, curr_year)
 
             # Add blank row between sections
             writer.writerow([])
 
-            # Section 4: CSAT Status
+            # Section 3: CSAT Status
             self._write_csat_section(writer, responses, curr_year)
 
             # Add blank row between sections
             writer.writerow([])
 
-            # Section 5: Open Answers
+            # Section 4: Open Answers
             self._write_open_answers_section(writer, responses, curr_year)
 
         print(f"  ✓ Wrote accounts/{filename}")
+
+    def _write_responses_section(self, writer, responses: List[NormalizedResponse],
+                                 prev_year: int, curr_year: int) -> None:
+        """Write RESPONSES section showing all responses for all respondents"""
+        writer.writerow(['### RESPONSES ###'])
+        writer.writerow(['All responses from all respondents for this account'])
+
+        # Collect all questions across all respondents
+        all_questions = set()
+        respondent_data = {}
+
+        for resp in responses:
+            if resp.is_numeric and resp.year == curr_year:
+                # Store respondent info and answers
+                if resp.email not in respondent_data:
+                    respondent_data[resp.email] = {
+                        'first_name': resp.first_name,
+                        'last_name': resp.last_name,
+                        'answers': {}
+                    }
+
+                respondent_data[resp.email]['answers'][resp.question_short_form] = resp.answer_numeric
+                all_questions.add(resp.question_short_form)
+
+        if not respondent_data:
+            writer.writerow(['No responses found'])
+            return
+
+        # Sort questions for consistent column order
+        sorted_questions = sorted(all_questions)
+
+        # Write header
+        header = ['Email', 'First Name', 'Last Name'] + sorted_questions
+        writer.writerow(header)
+
+        # Write data rows
+        for email in sorted(respondent_data.keys()):
+            data = respondent_data[email]
+            row = [
+                email,
+                data['first_name'],
+                data['last_name']
+            ]
+
+            # Add answer for each question (or empty if not answered)
+            for question in sorted_questions:
+                row.append(data['answers'].get(question, ''))
+
+            writer.writerow(row)
 
     def _write_new_submissions_section(self, writer, responses: List[NormalizedResponse],
                                        prev_year: int, curr_year: int) -> None:
@@ -1068,10 +1117,9 @@ class SurveyAnalyzer:
 
     def _write_yoy_changes_section(self, writer, responses: List[NormalizedResponse],
                                    prev_year: int, curr_year: int) -> None:
-        """Write YoY Changes section"""
-        writer.writerow(['### SECTION 2: YOY CHANGES ###'])
-        writer.writerow(['Returning respondents with year-over-year changes'])
-        writer.writerow([])
+        """Write YoY Changes section - only showing significant changes"""
+        writer.writerow(['### SECTION 1: YOY CHANGES ###'])
+        writer.writerow(['Returning respondents with significant year-over-year changes'])
 
         # Identify returning respondents
         prev_emails = set(r.email for r in responses if r.year == prev_year)
@@ -1120,18 +1168,32 @@ class SurveyAnalyzer:
             else:
                 group_baselines[group] = 0.0
 
+        # Filter records to only include significant changes
+        significant_records = []
+        for record in delta_records:
+            group_baseline = group_baselines.get(record['group'], 0.0)
+            strong_deviation = group_baseline > 0 and abs(record['delta']) > group_baseline
+            large_change = abs(record['delta']) > 1
+
+            # Only include if either condition is true
+            if strong_deviation or large_change:
+                record['group_baseline'] = group_baseline
+                record['strong_deviation'] = 'yes' if strong_deviation else 'no'
+                record['large_change'] = 'yes' if large_change else 'no'
+                significant_records.append(record)
+
+        if not significant_records:
+            writer.writerow(['No significant changes found'])
+            return
+
         # Header
         writer.writerow(['Email', 'First Name', 'Last Name', 'Question Group', 'Question',
                         f'{prev_year} Value', f'{curr_year} Value', 'Delta',
                         'Group Baseline (Std Dev)', 'Strong Deviation (>baseline)',
                         'Large Absolute Change (>1)'])
 
-        # Write delta records sorted by group and email
-        for record in sorted(delta_records, key=lambda x: (x['group'], x['email'], x['question'])):
-            group_baseline = group_baselines.get(record['group'], 0.0)
-            strong_deviation = 'yes' if group_baseline > 0 and abs(record['delta']) > group_baseline else 'no'
-            large_change = 'yes' if abs(record['delta']) > 1 else 'no'
-
+        # Write significant delta records sorted by group and email
+        for record in sorted(significant_records, key=lambda x: (x['group'], x['email'], x['question'])):
             writer.writerow([
                 record['email'],
                 record['first_name'],
@@ -1141,17 +1203,16 @@ class SurveyAnalyzer:
                 record['prev_value'],
                 record['curr_value'],
                 round(record['delta'], 2),
-                round(group_baseline, 2),
-                strong_deviation,
-                large_change
+                round(record['group_baseline'], 2),
+                record['strong_deviation'],
+                record['large_change']
             ])
 
     def _write_nps_section(self, writer, responses: List[NormalizedResponse],
                           prev_year: int, curr_year: int) -> None:
         """Write NPS Status and Transitions section"""
-        writer.writerow(['### SECTION 3: NPS STATUS AND TRANSITIONS ###'])
+        writer.writerow(['### SECTION 2: NPS STATUS AND TRANSITIONS ###'])
         writer.writerow(['NPS classification and year-over-year transitions'])
-        writer.writerow([])
 
         # Find NPS question - typically "Customer Satisfaction Rating" or contains "NPS"
         nps_questions = [q for q in self.questions.keys()
@@ -1227,9 +1288,8 @@ class SurveyAnalyzer:
     def _write_csat_section(self, writer, responses: List[NormalizedResponse],
                            curr_year: int) -> None:
         """Write CSAT Status section"""
-        writer.writerow(['### SECTION 4: CSAT STATUS ###'])
+        writer.writerow(['### SECTION 3: CSAT STATUS ###'])
         writer.writerow(['Current CSAT score per respondent'])
-        writer.writerow([])
 
         # CSAT is typically the Customer Satisfaction Rating
         csat_questions = [q for q in self.questions.keys()
@@ -1266,9 +1326,8 @@ class SurveyAnalyzer:
     def _write_open_answers_section(self, writer, responses: List[NormalizedResponse],
                                     curr_year: int) -> None:
         """Write Open Answers section"""
-        writer.writerow(['### SECTION 5: OPEN ANSWERS ###'])
+        writer.writerow(['### SECTION 4: OPEN ANSWERS ###'])
         writer.writerow(['Open-ended text responses'])
-        writer.writerow([])
 
         # Get all text (non-numeric) responses for current year
         text_responses = defaultdict(lambda: defaultdict(str))
