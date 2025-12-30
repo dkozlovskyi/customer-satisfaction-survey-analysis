@@ -1155,13 +1155,11 @@ class SurveyAnalyzer:
             else:
                 group_baselines[group] = 0.0
 
-        # Filter records to only include significant changes: 0 < std_delta < abs(delta)
+        # Filter records to only include changes where abs(delta) > 1
         significant_records = []
         for record in delta_records:
-            std_delta = group_baselines.get(record['group'], 0.0)
-
-            # Only include if 0 < std_delta < abs(delta)
-            if 0 < std_delta < abs(record['delta']):
+            # Only include if absolute delta is greater than 1
+            if abs(record['delta']) > 1:
                 significant_records.append(record)
 
         if not significant_records:
@@ -1169,18 +1167,16 @@ class SurveyAnalyzer:
             return
 
         # Header
-        writer.writerow(['Email', 'Question Group', 'Question',
-                        f'{prev_year} Value', f'{curr_year} Value', 'Delta'])
+        writer.writerow(['Email', 'Question',
+                        f'{prev_year} Value', f'{curr_year} Value'])
 
-        # Write significant delta records sorted by group and email
-        for record in sorted(significant_records, key=lambda x: (x['group'], x['email'], x['question'])):
+        # Write significant delta records sorted by email, then question
+        for record in sorted(significant_records, key=lambda x: (x['email'], x['question'])):
             writer.writerow([
                 record['email'],
-                record['group'],
                 record['question'],
                 record['prev_value'],
-                record['curr_value'],
-                round(record['delta'], 2)
+                record['curr_value']
             ])
 
     def _write_nps_section(self, writer, responses: List[NormalizedResponse],
