@@ -1214,15 +1214,13 @@ class SurveyAnalyzer:
         writer.writerow(['### SECTION 2: NPS STATUS AND TRANSITIONS ###'])
         writer.writerow(['NPS classification and year-over-year transitions'])
 
-        # Find NPS question - typically "Customer Satisfaction Rating" or contains "NPS"
-        nps_questions = [q for q in self.questions.keys()
-                        if 'Customer Satisfaction' in q or 'NPS' in q.upper()]
+        # Find NPS question - use "Rating" label
+        nps_question = 'Rating'
 
-        if not nps_questions:
-            writer.writerow(['No NPS question found in metadata'])
+        # Check if this question exists in our questions metadata
+        if nps_question not in self.questions:
+            writer.writerow(['No NPS question (Rating) found in metadata'])
             return
-
-        nps_question = nps_questions[0]
 
         # Get NPS responses
         nps_responses = [r for r in responses if r.question_short_form == nps_question and r.is_numeric]
@@ -1252,7 +1250,7 @@ class SurveyAnalyzer:
                         f'{curr_year} NPS Score', f'{curr_year} Status',
                         'Status Change', 'Category Transition'])
 
-        # Write NPS data
+        # Write NPS data - ordered by email
         for email in sorted(nps_map.keys()):
             # Get respondent info from current year
             resp_info = next((r for r in responses if r.email == email and r.year == curr_year), None)
@@ -1291,15 +1289,13 @@ class SurveyAnalyzer:
         writer.writerow(['### SECTION 3: CSAT STATUS ###'])
         writer.writerow(['Current CSAT score per respondent'])
 
-        # CSAT is typically the Customer Satisfaction Rating
-        csat_questions = [q for q in self.questions.keys()
-                         if 'Customer Satisfaction Rating' in q or 'CSAT' in q.upper()]
+        # Use "Customer Satisfaction Rating" label
+        csat_question = 'Customer Satisfaction Rating'
 
-        if not csat_questions:
-            writer.writerow(['No CSAT question found in metadata'])
+        # Check if this question exists in our questions metadata
+        if csat_question not in self.questions:
+            writer.writerow(['No CSAT question (Customer Satisfaction Rating) found in metadata'])
             return
-
-        csat_question = csat_questions[0]
 
         # Get current year CSAT responses
         csat_responses = [r for r in responses
@@ -1314,7 +1310,7 @@ class SurveyAnalyzer:
         # Header
         writer.writerow(['Email', 'First Name', 'Last Name', 'CSAT Score'])
 
-        # Write CSAT data
+        # Write CSAT data - ordered by email
         for resp in sorted(csat_responses, key=lambda x: x.email):
             writer.writerow([
                 resp.email,
