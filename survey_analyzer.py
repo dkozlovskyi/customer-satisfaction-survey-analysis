@@ -21,6 +21,71 @@ from typing import Dict, List, Optional, Set, Tuple
 import statistics
 
 
+# ============================================================
+# CONSTANTS
+# ============================================================
+
+# CSV Column Names
+class CSVColumns:
+    """Standard CSV column names for input files"""
+    RECORD_ID = 'Record ID'
+    EMAIL = 'Email'
+    FIRST_NAME = 'Contact first name'
+    LAST_NAME = 'Contact last name'
+    DATE = 'Date'
+    SURVEY_TYPE = 'Survey Type'
+
+    # Columns to skip during processing
+    SKIP_COLS = {
+        'Survey ID',  # Survey instance ID - no analytical value
+        'Response',  # NPS explanation - qualitative only
+        'Sentiment',  # Text representation of NPS - skip
+        'Industry Standard Question Type',  # Question type metadata - skip
+        'Source',  # Survey distribution method - skip
+        'Submission Name'  # Submission title - skip
+    }
+
+    STANDARD_COLS = {RECORD_ID, EMAIL, FIRST_NAME, LAST_NAME, DATE, SURVEY_TYPE}
+
+
+# Question Labels
+class QuestionLabels:
+    """Standard question labels used in analysis"""
+    NPS = 'Rating'
+    CSAT = 'Customer Satisfaction Rating'
+
+
+# Section Headers for Account Reports
+class SectionHeaders:
+    """Section headers for account-level reports"""
+    RESPONSES = 'RESPONSES FROM ALL RESPONDENTS'
+    SIGNIFICANT_CHANGES = 'SECTION 1: Significant YoY Changes'
+    NPS = 'SECTION 2: NPS Status & YoY Transitions'
+    CSAT = 'SECTION 3: CSAT Status & Transitions'
+    OPEN_ANSWERS = 'SECTION 5: Open-ended Text Responses'
+
+
+# Analysis Thresholds
+class Thresholds:
+    """Thresholds used in analysis"""
+    SIGNIFICANT_DELTA = 1.0  # Minimum absolute delta for YoY changes
+    MIN_CORRELATION_PAIRS = 3  # Minimum pairs needed for correlation calculation
+    STRONG_CORRELATION = 0.7  # Threshold for strong correlation
+    SIGNIFICANT_CHANGE_DELTA = 0.5  # Threshold for flagging significant changes
+
+
+# File Paths
+class Paths:
+    """Standard directory and file paths"""
+    META = 'meta'
+    RESPONSES = 'responses'
+    PREVIOUS = 'previous'
+    CURRENT = 'current'
+    ACCOUNTS = 'accounts'
+    QUESTIONS_CSV = 'questions.csv'
+    COMPANIES_CSV = 'companies.csv'
+
+
 @dataclass
 class Question:
     """Represents a survey question from metadata"""
@@ -144,9 +209,9 @@ class SurveyAnalyzer:
 
         # Check main directories
         required_dirs = [
-            self.input_dir / 'meta',
-            self.input_dir / 'responses' / 'previous',
-            self.input_dir / 'responses' / 'current'
+            self.input_dir / Paths.META,
+            self.input_dir / Paths.RESPONSES / Paths.PREVIOUS,
+            self.input_dir / Paths.RESPONSES / Paths.CURRENT
         ]
 
         for dir_path in required_dirs:
@@ -156,8 +221,8 @@ class SurveyAnalyzer:
 
         # Check required files
         required_files = [
-            self.input_dir / 'meta' / 'questions.csv',
-            self.input_dir / 'meta' / 'companies.csv'
+            self.input_dir / Paths.META / Paths.QUESTIONS_CSV,
+            self.input_dir / Paths.META / Paths.COMPANIES_CSV
         ]
 
         for file_path in required_files:
@@ -166,8 +231,8 @@ class SurveyAnalyzer:
             print(f"  ✓ Found: {file_path}")
 
         # Check for response files
-        prev_files = list((self.input_dir / 'responses' / 'previous').glob('*.csv'))
-        curr_files = list((self.input_dir / 'responses' / 'current').glob('*.csv'))
+        prev_files = list((self.input_dir / Paths.RESPONSES / Paths.PREVIOUS).glob('*.csv'))
+        curr_files = list((self.input_dir / Paths.RESPONSES / Paths.CURRENT).glob('*.csv'))
 
         if not prev_files:
             raise FileNotFoundError("No CSV files found in input/responses/previous/")
@@ -182,7 +247,7 @@ class SurveyAnalyzer:
     def load_questions(self) -> None:
         """Load question metadata"""
         print("Loading question metadata...")
-        file_path = self.input_dir / 'meta' / 'questions.csv'
+        file_path = self.input_dir / Paths.META / Paths.QUESTIONS_CSV
 
         with open(file_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
@@ -201,7 +266,7 @@ class SurveyAnalyzer:
     def load_companies(self) -> None:
         """Load company metadata"""
         print("Loading company metadata...")
-        file_path = self.input_dir / 'meta' / 'companies.csv'
+        file_path = self.input_dir / Paths.META / Paths.COMPANIES_CSV
 
         with open(file_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
@@ -224,13 +289,13 @@ class SurveyAnalyzer:
         print("Loading survey responses...")
 
         # Load previous year responses
-        prev_dir = self.input_dir / 'responses' / 'previous'
+        prev_dir = self.input_dir / Paths.RESPONSES / Paths.PREVIOUS
         for file_path in prev_dir.glob('*.csv'):
             year = self.extract_year_from_filename(file_path.name)
             self._load_response_file(file_path, year)
 
         # Load current year responses
-        curr_dir = self.input_dir / 'responses' / 'current'
+        curr_dir = self.input_dir / Paths.RESPONSES / Paths.CURRENT
         for file_path in curr_dir.glob('*.csv'):
             year = self.extract_year_from_filename(file_path.name)
             self._load_response_file(file_path, year)
@@ -245,38 +310,22 @@ class SurveyAnalyzer:
         with open(file_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
 
-            # Identify question columns (exclude standard columns and non-analytical columns)
-            standard_cols = {
-                'Record ID', 'Email', 'Contact first name', 'Contact last name',
-                'Date', 'Survey Type'
-            }
-
-            # Non-analytical columns to skip
-            skip_cols = {
-                'Survey ID',                          # Survey instance ID - no analytical value
-                'Response',                           # NPS explanation - qualitative only
-                'Sentiment',                          # Text representation of NPS - skip
-                'Industry Standard Question Type',    # Question type metadata - skip
-                'Source',                             # Survey distribution method - skip
-                'Submission Name'                     # Submission title - skip
-            }
-
             for row in reader:
                 # Extract standard fields
                 response = Response(
                     year=year,
-                    record_id=row.get('Record ID', '').strip(),
-                    email=row.get('Email', '').strip(),
-                    first_name=row.get('Contact first name', '').strip(),
-                    last_name=row.get('Contact last name', '').strip(),
-                    date=row.get('Date', '').strip(),
-                    survey_type=row.get('Survey Type', '').strip(),
+                    record_id=row.get(CSVColumns.RECORD_ID, '').strip(),
+                    email=row.get(CSVColumns.EMAIL, '').strip(),
+                    first_name=row.get(CSVColumns.FIRST_NAME, '').strip(),
+                    last_name=row.get(CSVColumns.LAST_NAME, '').strip(),
+                    date=row.get(CSVColumns.DATE, '').strip(),
+                    survey_type=row.get(CSVColumns.SURVEY_TYPE, '').strip(),
                     answers={}
                 )
 
                 # Extract question answers (skip standard and non-analytical columns)
                 for col, value in row.items():
-                    if col not in standard_cols and col not in skip_cols and value.strip():
+                    if col not in CSVColumns.STANDARD_COLS and col not in CSVColumns.SKIP_COLS and value.strip():
                         response.answers[col] = value.strip()
 
                 self.responses.append(response)
@@ -515,8 +564,8 @@ class SurveyAnalyzer:
                     # Determine if change is significant
                     significant_change = 'no'
                     if isinstance(delta, (int, float)) and delta != 'N/A':
-                        # Mark as significant if delta exceeds group std dev OR if absolute delta >= 0.5
-                        if abs(delta) >= 0.5:
+                        # Mark as significant if delta exceeds group std dev OR if absolute delta >= threshold
+                        if abs(delta) >= Thresholds.SIGNIFICANT_CHANGE_DELTA:
                             significant_change = 'yes'
                         elif question_group in group_delta_stats:
                             std_delta = group_delta_stats[question_group]['std_delta']
@@ -632,8 +681,8 @@ class SurveyAnalyzer:
                     # Determine if change is significant (same logic as question_aggregates)
                     significant_change = 'no'
                     if isinstance(delta, (int, float)) and delta != 'N/A':
-                        # Mark as significant if delta exceeds survey type std dev OR if absolute delta >= 0.5
-                        if abs(delta) >= 0.5:
+                        # Mark as significant if delta exceeds survey type std dev OR if absolute delta >= threshold
+                        if abs(delta) >= Thresholds.SIGNIFICANT_CHANGE_DELTA:
                             significant_change = 'yes'
                         elif survey_type in survey_type_delta_stats:
                             std_delta = survey_type_delta_stats[survey_type]['std_delta']
@@ -852,15 +901,15 @@ class SurveyAnalyzer:
                     if q1 in answers and q2 in answers:
                         pairs.append((answers[q1], answers[q2]))
 
-                if len(pairs) >= 3:  # Need at least 3 pairs for meaningful correlation
+                if len(pairs) >= Thresholds.MIN_CORRELATION_PAIRS:  # Need minimum pairs for meaningful correlation
                     values1 = [p[0] for p in pairs]
                     values2 = [p[1] for p in pairs]
 
                     # Calculate Pearson correlation
                     corr = self.pearson_correlation(values1, values2)
 
-                    # Only include Strong correlations (|r| >= 0.7)
-                    if corr is not None and abs(corr) >= 0.7:
+                    # Only include Strong correlations
+                    if corr is not None and abs(corr) >= Thresholds.STRONG_CORRELATION:
                         correlations.append({
                             'year': year,
                             'segment_type': segment_type,
@@ -901,7 +950,7 @@ class SurveyAnalyzer:
     def interpret_correlation(self, corr: float) -> str:
         """Interpret correlation strength"""
         abs_corr = abs(corr)
-        if abs_corr >= 0.7:
+        if abs_corr >= Thresholds.STRONG_CORRELATION:
             return 'Strong'
         elif abs_corr >= 0.4:
             return 'Moderate'
@@ -931,7 +980,7 @@ class SurveyAnalyzer:
         curr_year = all_years[-1]
 
         # Create accounts subdirectory
-        accounts_dir = self.output_dir / 'accounts'
+        accounts_dir = self.output_dir / Paths.ACCOUNTS
         accounts_dir.mkdir(parents=True, exist_ok=True)
 
         # Group responses by company
@@ -993,7 +1042,7 @@ class SurveyAnalyzer:
     def _write_responses_section(self, writer, responses: List[NormalizedResponse],
                                  prev_year: int, curr_year: int) -> None:
         """Write RESPONSES section showing all responses for all respondents"""
-        writer.writerow(['RESPONSES FROM ALL RESPONDENTS'])
+        writer.writerow([SectionHeaders.RESPONSES])
 
         # Collect all questions across all respondents
         all_questions = set()
@@ -1117,7 +1166,7 @@ class SurveyAnalyzer:
     def _write_yoy_changes_section(self, writer, responses: List[NormalizedResponse],
                                    prev_year: int, curr_year: int) -> None:
         """Write YoY Changes section - only showing significant changes"""
-        writer.writerow(['SECTION 1: Significant YoY Changes'])
+        writer.writerow([SectionHeaders.SIGNIFICANT_CHANGES])
 
         # Identify returning respondents
         prev_emails = set(r.email for r in responses if r.year == prev_year)
@@ -1161,11 +1210,11 @@ class SurveyAnalyzer:
             else:
                 group_baselines[group] = 0.0
 
-        # Filter records to only include changes where abs(delta) > 1
+        # Filter records to only include changes where abs(delta) > threshold
         significant_records = []
         for record in delta_records:
-            # Only include if absolute delta is greater than 1
-            if abs(record['delta']) > 1:
+            # Only include if absolute delta is greater than threshold
+            if abs(record['delta']) > Thresholds.SIGNIFICANT_DELTA:
                 significant_records.append(record)
 
         if not significant_records:
@@ -1188,10 +1237,10 @@ class SurveyAnalyzer:
     def _write_nps_section(self, writer, responses: List[NormalizedResponse],
                           prev_year: int, curr_year: int) -> None:
         """Write NPS Status and Transitions section"""
-        writer.writerow(['SECTION 2: NPS Status & YoY Transitions'])
+        writer.writerow([SectionHeaders.NPS])
 
-        # Find NPS question - use "Rating" label
-        nps_question = 'Rating'
+        # Find NPS question
+        nps_question = QuestionLabels.NPS
 
         # Check if this question exists in our questions metadata
         if nps_question not in self.questions:
@@ -1230,10 +1279,10 @@ class SurveyAnalyzer:
     def _write_csat_section(self, writer, responses: List[NormalizedResponse],
                            curr_year: int, prev_year: int) -> None:
         """Write CSAT Status section with YoY transitions"""
-        writer.writerow(['SECTION 3: CSAT Status & Transitions'])
+        writer.writerow([SectionHeaders.CSAT])
 
-        # Use "Customer Satisfaction Rating" label
-        csat_question = 'Customer Satisfaction Rating'
+        # Use CSAT question label
+        csat_question = QuestionLabels.CSAT
 
         # Check if this question exists in our questions metadata
         if csat_question not in self.questions:
@@ -1274,7 +1323,7 @@ class SurveyAnalyzer:
     def _write_open_answers_section(self, writer, responses: List[NormalizedResponse],
                                     curr_year: int) -> None:
         """Write Open Answers section"""
-        writer.writerow(['SECTION 5: Open-ended Text Responses'])
+        writer.writerow([SectionHeaders.OPEN_ANSWERS])
 
         # Get all text (non-numeric) responses for current year
         text_responses = defaultdict(lambda: defaultdict(str))
