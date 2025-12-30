@@ -987,7 +987,8 @@ class SurveyAnalyzer:
     def _write_responses_section(self, writer, responses: List[NormalizedResponse],
                                  prev_year: int, curr_year: int) -> None:
         """Write RESPONSES section showing all responses for all respondents"""
-        writer.writerow(['### SECTION 1: All Account Responses ###'])
+        writer.writerow(['### RESPONSES ###'])
+        writer.writerow(['All responses from all respondents for this account'])
 
         # Collect all questions across all respondents
         all_questions = set()
@@ -1111,7 +1112,8 @@ class SurveyAnalyzer:
     def _write_yoy_changes_section(self, writer, responses: List[NormalizedResponse],
                                    prev_year: int, curr_year: int) -> None:
         """Write YoY Changes section - only showing significant changes"""
-        writer.writerow(['### SECTION 2: Significant YoY Changes ###'])
+        writer.writerow(['### SECTION 1: SIGNIFICANT YOY CHANGES ###'])
+        writer.writerow(['Returning respondents with significant year-over-year changes'])
 
         # Identify returning respondents
         prev_emails = set(r.email for r in responses if r.year == prev_year)
@@ -1138,19 +1140,14 @@ class SurveyAnalyzer:
                 delta = year_values[curr_year] - year_values[prev_year]
                 deltas_by_group[group].append(delta)
 
-                # Get respondent info
-                resp_info = next((r for r in responses if r.email == email and r.year == curr_year), None)
-                if resp_info:
-                    delta_records.append({
-                        'email': email,
-                        'first_name': resp_info.first_name,
-                        'last_name': resp_info.last_name,
-                        'question': question,
-                        'group': group,
-                        'prev_value': year_values[prev_year],
-                        'curr_value': year_values[curr_year],
-                        'delta': delta
-                    })
+                delta_records.append({
+                    'email': email,
+                    'question': question,
+                    'group': group,
+                    'prev_value': year_values[prev_year],
+                    'curr_value': year_values[curr_year],
+                    'delta': delta
+                })
 
         # Calculate baseline (std dev) for each question group
         group_baselines = {}
@@ -1160,18 +1157,13 @@ class SurveyAnalyzer:
             else:
                 group_baselines[group] = 0.0
 
-        # Filter records to only include significant changes
+        # Filter records to only include significant changes: 0 < std_delta < abs(delta)
         significant_records = []
         for record in delta_records:
-            group_baseline = group_baselines.get(record['group'], 0.0)
-            strong_deviation = group_baseline > 0 and abs(record['delta']) > group_baseline
-            large_change = abs(record['delta']) > 1
+            std_delta = group_baselines.get(record['group'], 0.0)
 
-            # Only include if either condition is true
-            if strong_deviation or large_change:
-                record['group_baseline'] = group_baseline
-                record['strong_deviation'] = 'yes' if strong_deviation else 'no'
-                record['large_change'] = 'yes' if large_change else 'no'
+            # Only include if 0 < std_delta < abs(delta)
+            if 0 < std_delta < abs(record['delta']):
                 significant_records.append(record)
 
         if not significant_records:
@@ -1180,9 +1172,7 @@ class SurveyAnalyzer:
 
         # Header
         writer.writerow(['Email', 'Question Group', 'Question',
-                        f'{prev_year} Value', f'{curr_year} Value', 'Delta',
-                        'Group Baseline (Std Dev)', 'Strong Deviation (>baseline)',
-                        'Large Absolute Change (>1)'])
+                        f'{prev_year} Value', f'{curr_year} Value', 'Delta'])
 
         # Write significant delta records sorted by group and email
         for record in sorted(significant_records, key=lambda x: (x['group'], x['email'], x['question'])):
@@ -1192,16 +1182,14 @@ class SurveyAnalyzer:
                 record['question'],
                 record['prev_value'],
                 record['curr_value'],
-                round(record['delta'], 2),
-                round(record['group_baseline'], 2),
-                record['strong_deviation'],
-                record['large_change']
+                round(record['delta'], 2)
             ])
 
     def _write_nps_section(self, writer, responses: List[NormalizedResponse],
                           prev_year: int, curr_year: int) -> None:
         """Write NPS Status and Transitions section"""
-        writer.writerow(['### SECTION 3: NPS Status & YoY Transitions ###'])
+        writer.writerow(['### SECTION 2: NPS STATUS & YOY TRANSITIONS ###'])
+        writer.writerow(['NPS scores year-over-year'])
 
         # Find NPS question - use "Rating" label
         nps_question = 'Rating'
@@ -1218,57 +1206,33 @@ class SurveyAnalyzer:
             writer.writerow(['No NPS responses found'])
             return
 
-        # Build NPS map: email -> {year: (score, status)}
+        # Build NPS map: email -> {year: score}
         nps_map = defaultdict(dict)
 
-        def get_nps_status(score):
-            if score >= 9:
-                return 'Promoter'
-            elif score >= 7:
-                return 'Passive'
-            else:
-                return 'Detractor'
-
         for resp in nps_responses:
-            status = get_nps_status(resp.answer_numeric)
-            nps_map[resp.email][resp.year] = (resp.answer_numeric, status)
+            nps_map[resp.email][resp.year] = resp.answer_numeric
 
         # Header
         writer.writerow(['Email',
-                        f'{prev_year} NPS Score', f'{prev_year} Status',
-                        f'{curr_year} NPS Score', f'{curr_year} Status',
-                        'Status Change', 'Category Transition'])
+                        f'{prev_year} NPS Score',
+                        f'{curr_year} NPS Score'])
 
         # Write NPS data - ordered by email
         for email in sorted(nps_map.keys()):
-            prev_data = nps_map[email].get(prev_year, (None, None))
-            curr_data = nps_map[email].get(curr_year, (None, None))
-
-            prev_score, prev_status = prev_data
-            curr_score, curr_status = curr_data
-
-            # Determine if status changed
-            if prev_status and curr_status:
-                status_change = 'yes' if prev_status != curr_status else 'no'
-                category_transition = f'{prev_status} → {curr_status}' if prev_status != curr_status else 'No change'
-            else:
-                status_change = 'N/A'
-                category_transition = 'N/A'
+            prev_score = nps_map[email].get(prev_year, None)
+            curr_score = nps_map[email].get(curr_year, None)
 
             writer.writerow([
                 email,
                 prev_score if prev_score is not None else 'N/A',
-                prev_status if prev_status else 'N/A',
-                curr_score if curr_score is not None else 'N/A',
-                curr_status if curr_status else 'N/A',
-                status_change,
-                category_transition
+                curr_score if curr_score is not None else 'N/A'
             ])
 
     def _write_csat_section(self, writer, responses: List[NormalizedResponse],
                            curr_year: int, prev_year: int) -> None:
         """Write CSAT Status section with YoY transitions"""
-        writer.writerow(['### SECTION 4: CSAT Status & Transitions ###'])
+        writer.writerow(['### SECTION 3: CSAT STATUS & TRANSITIONS ###'])
+        writer.writerow(['CSAT scores year-over-year'])
 
         # Use "Customer Satisfaction Rating" label
         csat_question = 'Customer Satisfaction Rating'
@@ -1296,25 +1260,17 @@ class SurveyAnalyzer:
         # Header
         writer.writerow(['Email',
                         f'{prev_year} CSAT Score',
-                        f'{curr_year} CSAT Score',
-                        'Delta'])
+                        f'{curr_year} CSAT Score'])
 
         # Write CSAT data - ordered by email
         for email in sorted(csat_map.keys()):
             prev_score = csat_map[email].get(prev_year, None)
             curr_score = csat_map[email].get(curr_year, None)
 
-            # Calculate delta if both scores exist
-            if prev_score is not None and curr_score is not None:
-                delta = round(curr_score - prev_score, 2)
-            else:
-                delta = 'N/A'
-
             writer.writerow([
                 email,
                 prev_score if prev_score is not None else 'N/A',
-                curr_score if curr_score is not None else 'N/A',
-                delta
+                curr_score if curr_score is not None else 'N/A'
             ])
 
     def _write_open_answers_section(self, writer, responses: List[NormalizedResponse],
