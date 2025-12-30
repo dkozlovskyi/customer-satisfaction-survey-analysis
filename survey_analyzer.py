@@ -940,11 +940,17 @@ class SurveyAnalyzer:
             if resp.company_name:  # Only include responses with matched companies
                 company_responses[resp.company_name].append(resp)
 
-        # Generate a report for each company
+        # Generate a report for each company (only if they have current year responses)
+        reports_generated = 0
         for company_name, responses in sorted(company_responses.items()):
-            self._write_account_report(company_name, responses, prev_year, curr_year, accounts_dir)
+            # Check if this company has any responses in the current year
+            has_current_year_responses = any(r.year == curr_year for r in responses)
 
-        print(f"  ✓ Generated {len(company_responses)} account reports in accounts/\n")
+            if has_current_year_responses:
+                self._write_account_report(company_name, responses, prev_year, curr_year, accounts_dir)
+                reports_generated += 1
+
+        print(f"  ✓ Generated {reports_generated} account reports in accounts/\n")
 
     def _write_account_report(self, company_name: str, responses: List[NormalizedResponse],
                               prev_year: int, curr_year: int, accounts_dir: Path) -> None:
@@ -1307,29 +1313,26 @@ class SurveyAnalyzer:
         # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # 1. Normalized responses
-        self._write_normalized_responses()
-
-        # 2. Question aggregates
+        # 1. Question aggregates
         question_aggs = self.aggregate_by_question()
         self._write_question_aggregates(question_aggs)
 
-        # 3. Question group aggregates
+        # 2. Question group aggregates
         group_aggs = self.aggregate_by_question_group()
         self._write_question_group_aggregates(group_aggs)
 
-        # 4. Correlations
+        # 3. Correlations
         correlations = self.calculate_correlations()
         self._write_correlations(correlations)
 
-        # 5. Per-account reports with individual analysis
+        # 4. Per-account reports with individual analysis
         self.generate_account_reports()
 
-        # 6. Unmatched domains (only if there are unmatched domains)
+        # 5. Unmatched domains (only if there are unmatched domains)
         if self.unmatched_domains:
             self._write_unmatched_domains()
 
-        # 7. Unknown questions (only if there are unknown questions)
+        # 6. Unknown questions (only if there are unknown questions)
         if self.unknown_questions:
             self._write_unknown_questions()
 
