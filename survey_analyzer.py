@@ -987,8 +987,7 @@ class SurveyAnalyzer:
     def _write_responses_section(self, writer, responses: List[NormalizedResponse],
                                  prev_year: int, curr_year: int) -> None:
         """Write RESPONSES section showing all responses for all respondents"""
-        writer.writerow(['### RESPONSES ###'])
-        writer.writerow(['All responses from all respondents for this account'])
+        writer.writerow(['### RESPONSES FROM ALL RESPONDENTS ###'])
 
         # Collect all questions across all respondents
         all_questions = set()
@@ -1113,7 +1112,6 @@ class SurveyAnalyzer:
                                    prev_year: int, curr_year: int) -> None:
         """Write YoY Changes section - only showing significant changes"""
         writer.writerow(['### SECTION 1: SIGNIFICANT YOY CHANGES ###'])
-        writer.writerow(['Returning respondents with significant year-over-year changes'])
 
         # Identify returning respondents
         prev_emails = set(r.email for r in responses if r.year == prev_year)
@@ -1189,7 +1187,6 @@ class SurveyAnalyzer:
                           prev_year: int, curr_year: int) -> None:
         """Write NPS Status and Transitions section"""
         writer.writerow(['### SECTION 2: NPS STATUS & YOY TRANSITIONS ###'])
-        writer.writerow(['NPS scores year-over-year'])
 
         # Find NPS question - use "Rating" label
         nps_question = 'Rating'
@@ -1232,7 +1229,6 @@ class SurveyAnalyzer:
                            curr_year: int, prev_year: int) -> None:
         """Write CSAT Status section with YoY transitions"""
         writer.writerow(['### SECTION 3: CSAT STATUS & TRANSITIONS ###'])
-        writer.writerow(['CSAT scores year-over-year'])
 
         # Use "Customer Satisfaction Rating" label
         csat_question = 'Customer Satisfaction Rating'
