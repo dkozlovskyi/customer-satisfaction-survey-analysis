@@ -48,30 +48,11 @@ class CSVColumns:
     STANDARD_COLS = {RECORD_ID, EMAIL, FIRST_NAME, LAST_NAME, DATE, SURVEY_TYPE}
 
 
-# Question Labels
-class QuestionLabels:
-    """Standard question labels used in analysis"""
-    NPS = 'Rating'
-    CSAT = 'Customer Satisfaction Rating'
-
-
-# Section Headers for Account Reports
-class SectionHeaders:
-    """Section headers for account-level reports"""
-    RESPONSES = 'RESPONSES FROM ALL RESPONDENTS'
-    SIGNIFICANT_CHANGES = 'SECTION 1: Significant YoY Changes'
-    NPS = 'SECTION 2: NPS Status & YoY Transitions'
-    CSAT = 'SECTION 3: CSAT Status & Transitions'
-    OPEN_ANSWERS = 'SECTION 5: Open-ended Text Responses'
-
-
 # Analysis Thresholds
 class Thresholds:
     """Thresholds used in analysis"""
-    SIGNIFICANT_DELTA = 1.0  # Minimum absolute delta for YoY changes
     MIN_CORRELATION_PAIRS = 3  # Minimum pairs needed for correlation calculation
     STRONG_CORRELATION = 0.7  # Threshold for strong correlation
-    SIGNIFICANT_CHANGE_DELTA = 0.5  # Threshold for flagging significant changes
 
 
 # File Paths
@@ -81,7 +62,6 @@ class Paths:
     RESPONSES = 'responses'
     PREVIOUS = 'previous'
     CURRENT = 'current'
-    ACCOUNTS = 'accounts'
     QUESTIONS_CSV = 'questions.csv'
     COMPANIES_CSV = 'companies.csv'
 
@@ -430,498 +410,122 @@ class SurveyAnalyzer:
             max_val=max(values)
         )
 
-    def calculate_yoy_deltas(self) -> List[Dict]:
-        """Calculate year-over-year deltas at respondent/question level"""
-        print("Calculating year-over-year deltas...")
-
-        # Group responses by email + question
-        response_map = defaultdict(dict)  # (email, question) -> {year: answer_numeric}
-
-        for resp in self.normalized_responses:
-            if resp.is_numeric and resp.answer_numeric is not None:
-                key = (resp.email, resp.question_short_form)
-                response_map[key][resp.year] = resp.answer_numeric
-
-        # Calculate deltas
-        deltas = []
-        years = sorted(set(r.year for r in self.normalized_responses))
-
-        if len(years) >= 2:
-            prev_year = years[0]
-            curr_year = years[1]
-
-            for (email, question), year_answers in response_map.items():
-                if prev_year in year_answers and curr_year in year_answers:
-                    prev_val = year_answers[prev_year]
-                    curr_val = year_answers[curr_year]
-                    delta = curr_val - prev_val
-
-                    # Find corresponding normalized response for metadata
-                    curr_resp = next(
-                        (r for r in self.normalized_responses
-                         if r.email == email and r.question_short_form == question and r.year == curr_year),
-                        None
-                    )
-
-                    if curr_resp:
-                        deltas.append({
-                            'email': email,
-                            'company_name': curr_resp.company_name,
-                            'question_short_form': question,
-                            'question_group': curr_resp.question_group,
-                            'previous_year': prev_year,
-                            'previous_value': prev_val,
-                            'current_year': curr_year,
-                            'current_value': curr_val,
-                            'delta': delta,
-                            'delta_pct': (delta / prev_val * 100) if prev_val != 0 else 0
-                        })
-
-        print(f"  ✓ Calculated {len(deltas)} year-over-year deltas\n")
-        return deltas
-
-    def aggregate_by_question(self) -> List[Dict]:
-        """Aggregate responses by question with 2024/2025 comparison and significance detection"""
-        print("Aggregating by question...")
-
-        # Group by year and question
-        groups = defaultdict(list)
-
-        for resp in self.normalized_responses:
-            if resp.is_numeric and resp.answer_numeric is not None:
-                key = (resp.year, resp.question_short_form, resp.question_group)
-                groups[key].append(resp.answer_numeric)
-
-        # Calculate aggregates by question
-        question_data = defaultdict(dict)  # question -> {year -> stats}
-
-        for (year, question, group), values in groups.items():
-            stats = self.calculate_stats(values)
-            if question not in question_data:
-                question_data[question] = {'group': group}
-            question_data[question][year] = {
-                'response_count': stats.count,
-                'mean': round(stats.mean, 2),
-                'median': round(stats.median, 2),
-                'std_dev': round(stats.std_dev, 2)
-            }
-
-        # Get all years and sort them
-        all_years = sorted(set(year for year, _, _ in groups.keys()))
-
-        # Calculate deltas for each question group
-        group_deltas = defaultdict(list)  # question_group -> [deltas]
-
-        for question, data in question_data.items():
-            if len(all_years) >= 2:
-                prev_year = all_years[-2]
-                curr_year = all_years[-1]
-                if prev_year in data and curr_year in data:
-                    delta = data[curr_year]['mean'] - data[prev_year]['mean']
-                    group_deltas[data['group']].append(delta)
-
-        # Calculate group delta statistics
-        group_delta_stats = {}
-        for group, deltas in group_deltas.items():
-            if len(deltas) > 0:
-                mean_delta = statistics.mean(deltas)
-                std_delta = statistics.stdev(deltas) if len(deltas) > 1 else 0.0
-                group_delta_stats[group] = {
-                    'mean_delta': mean_delta,
-                    'std_delta': std_delta
-                }
-
-        # Build final aggregates (2025 rows only with 2024 data in columns)
-        aggregates = []
-
-        if len(all_years) >= 2:
-            prev_year = all_years[-2]
-            curr_year = all_years[-1]
-
-            for question, data in question_data.items():
-                if curr_year in data:  # Only include questions that have current year data
-                    curr_data = data[curr_year]
-                    question_group = data['group']
-
-                    # Get previous year data if available
-                    prev_data = data.get(prev_year, {
-                        'response_count': 'N/A',
-                        'mean': 'N/A',
-                        'median': 'N/A',
-                        'std_dev': 'N/A'
-                    })
-
-                    # Calculate delta
-                    delta = 'N/A'
-                    if prev_year in data:
-                        delta = round(curr_data['mean'] - data[prev_year]['mean'], 2)
-
-                    # Get group delta std dev
-                    group_std_delta = 'N/A'
-                    if question_group in group_delta_stats:
-                        group_std_delta = round(group_delta_stats[question_group]['std_delta'], 2)
-
-                    # Determine if change is significant
-                    significant_change = 'no'
-                    if isinstance(delta, (int, float)) and delta != 'N/A':
-                        # Mark as significant if delta exceeds group std dev OR if absolute delta >= threshold
-                        if abs(delta) >= Thresholds.SIGNIFICANT_CHANGE_DELTA:
-                            significant_change = 'yes'
-                        elif question_group in group_delta_stats:
-                            std_delta = group_delta_stats[question_group]['std_delta']
-                            if 0 < std_delta < abs(delta):
-                                significant_change = 'yes'
-
-                    aggregates.append({
-                        'year': curr_year,
-                        'question_short_form': question,
-                        'question_group': question_group,
-                        '2024_response_count': prev_data['response_count'],
-                        '2024_mean': prev_data['mean'],
-                        '2024_median': prev_data['median'],
-                        '2024_std_dev': prev_data['std_dev'],
-                        '2025_response_count': curr_data['response_count'],
-                        '2025_mean': curr_data['mean'],
-                        '2025_median': curr_data['median'],
-                        '2025_std_dev': curr_data['std_dev'],
-                        '2025_delta': delta,
-                        '2025_std_dev_group_deltas': group_std_delta,
-                        'significant_change': significant_change
-                    })
-
-        print(f"  ✓ Created {len(aggregates)} question aggregates\n")
-        return sorted(aggregates, key=lambda x: x['question_short_form'])
-
-    def aggregate_by_question_group(self) -> List[Dict]:
-        """Aggregate responses by question group with 2024/2025 comparison and significance detection"""
-        print("Aggregating by question group...")
-
-        # First, determine survey type for each question group from questions metadata
-        group_to_survey_type = {}
-        for question_short_form, question in self.questions.items():
-            if question.question_group not in group_to_survey_type:
-                group_to_survey_type[question.question_group] = question.survey_type
-
-        # Group by year and question group
-        groups = defaultdict(list)
-
-        for resp in self.normalized_responses:
-            if resp.is_numeric and resp.answer_numeric is not None:
-                key = (resp.year, resp.question_group)
-                groups[key].append(resp.answer_numeric)
-
-        # Calculate aggregates by group
-        group_data = defaultdict(dict)  # group -> {year -> stats}
-
-        for (year, group), values in groups.items():
-            stats = self.calculate_stats(values)
-            if group not in group_data:
-                group_data[group] = {'survey_type': group_to_survey_type.get(group, 'Unknown')}
-            group_data[group][year] = {
-                'response_count': stats.count,
-                'mean': round(stats.mean, 2),
-                'median': round(stats.median, 2),
-                'std_dev': round(stats.std_dev, 2)
-            }
-
-        # Get all years and sort them
-        all_years = sorted(set(year for year, _ in groups.keys()))
-
-        # Calculate deltas for each survey type
-        survey_type_deltas = defaultdict(list)  # survey_type -> [deltas]
-
-        for group, data in group_data.items():
-            if len(all_years) >= 2:
-                prev_year = all_years[-2]
-                curr_year = all_years[-1]
-                if prev_year in data and curr_year in data:
-                    delta = data[curr_year]['mean'] - data[prev_year]['mean']
-                    survey_type = data['survey_type']
-                    survey_type_deltas[survey_type].append(delta)
-
-        # Calculate survey type delta statistics
-        survey_type_delta_stats = {}
-        for survey_type, deltas in survey_type_deltas.items():
-            if len(deltas) > 0:
-                std_delta = statistics.stdev(deltas) if len(deltas) > 1 else 0.0
-                survey_type_delta_stats[survey_type] = {
-                    'std_delta': std_delta
-                }
-
-        # Build final aggregates (2025 rows only with 2024 data in columns)
-        aggregates = []
-
-        if len(all_years) >= 2:
-            prev_year = all_years[-2]
-            curr_year = all_years[-1]
-
-            for group, data in group_data.items():
-                if curr_year in data:  # Only include groups that have current year data
-                    curr_data = data[curr_year]
-                    survey_type = data['survey_type']
-
-                    # Get previous year data if available
-                    prev_data = data.get(prev_year, {
-                        'response_count': 'N/A',
-                        'mean': 'N/A',
-                        'median': 'N/A',
-                        'std_dev': 'N/A'
-                    })
-
-                    # Calculate delta
-                    delta = 'N/A'
-                    if prev_year in data:
-                        delta = round(curr_data['mean'] - data[prev_year]['mean'], 2)
-
-                    # Get survey type delta std dev
-                    survey_type_std_delta = 'N/A'
-                    if survey_type in survey_type_delta_stats:
-                        survey_type_std_delta = round(survey_type_delta_stats[survey_type]['std_delta'], 2)
-
-                    # Determine if change is significant (same logic as question_aggregates)
-                    significant_change = 'no'
-                    if isinstance(delta, (int, float)) and delta != 'N/A':
-                        # Mark as significant if delta exceeds survey type std dev OR if absolute delta >= threshold
-                        if abs(delta) >= Thresholds.SIGNIFICANT_CHANGE_DELTA:
-                            significant_change = 'yes'
-                        elif survey_type in survey_type_delta_stats:
-                            std_delta = survey_type_delta_stats[survey_type]['std_delta']
-                            if abs(delta) > std_delta:
-                                significant_change = 'yes'
-
-                    aggregates.append({
-                        'year': curr_year,
-                        'question_group': group,
-                        'survey_type': survey_type,
-                        '2024_response_count': prev_data['response_count'],
-                        '2024_mean': prev_data['mean'],
-                        '2024_median': prev_data['median'],
-                        '2024_std_dev': prev_data['std_dev'],
-                        '2025_response_count': curr_data['response_count'],
-                        '2025_mean': curr_data['mean'],
-                        '2025_median': curr_data['median'],
-                        '2025_std_dev': curr_data['std_dev'],
-                        '2025_delta': delta,
-                        '2025_std_dev_survey_type_deltas': survey_type_std_delta,
-                        'significant_change': significant_change
-                    })
-
-        print(f"  ✓ Created {len(aggregates)} question group aggregates\n")
-        return sorted(aggregates, key=lambda x: x['question_group'])
-
-    def aggregate_by_segment(self) -> List[Dict]:
-        """Aggregate responses by segment (region, tenure) and year"""
-        print("Aggregating by segment...")
-
-        aggregates = []
-
-        # By Region
-        groups = defaultdict(list)
-        for resp in self.normalized_responses:
-            if resp.is_numeric and resp.answer_numeric is not None and resp.region:
-                key = (resp.year, 'Region', resp.region, resp.question_short_form)
-                groups[key].append(resp.answer_numeric)
-
-        for (year, segment_type, segment_value, question), values in groups.items():
-            stats = self.calculate_stats(values)
-            aggregates.append({
-                'year': year,
-                'segment_type': segment_type,
-                'segment_value': segment_value,
-                'question_short_form': question,
-                'response_count': stats.count,
-                'mean': round(stats.mean, 2),
-                'median': round(stats.median, 2)
-            })
-
-        # By Survey Type
-        groups = defaultdict(list)
-        for resp in self.normalized_responses:
-            if resp.is_numeric and resp.answer_numeric is not None:
-                key = (resp.year, 'Survey Type', resp.survey_type, resp.question_short_form)
-                groups[key].append(resp.answer_numeric)
-
-        for (year, segment_type, segment_value, question), values in groups.items():
-            stats = self.calculate_stats(values)
-            aggregates.append({
-                'year': year,
-                'segment_type': segment_type,
-                'segment_value': segment_value,
-                'question_short_form': question,
-                'response_count': stats.count,
-                'mean': round(stats.mean, 2),
-                'median': round(stats.median, 2)
-            })
-
-        print(f"  ✓ Created {len(aggregates)} segment aggregates\n")
-        return sorted(aggregates, key=lambda x: (x['year'], x['segment_type'], x['segment_value']))
-
-    def aggregate_by_account(self) -> List[Dict]:
-        """Aggregate responses by account (company domain) showing all respondents"""
-        print("Aggregating by account...")
-
-        aggregates = []
-
-        # Group by year, account_domain, and question
-        for year in set(r.year for r in self.normalized_responses):
-            # Get all accounts (companies)
-            accounts = defaultdict(lambda: {'company_name': '', 'respondents': set(), 'responses': []})
-
-            for resp in self.normalized_responses:
-                if resp.year == year and resp.account_domain:
-                    key = (resp.account_domain, resp.question_short_form)
-                    accounts[key]['company_name'] = resp.company_name
-                    accounts[key]['respondents'].add(f"{resp.first_name} {resp.last_name} ({resp.email})")
-                    if resp.is_numeric and resp.answer_numeric is not None:
-                        accounts[key]['responses'].append(resp.answer_numeric)
-
-            # Calculate aggregates for each account/question combination
-            for (domain, question), data in accounts.items():
-                if data['responses']:  # Only if we have numeric responses
-                    stats = self.calculate_stats(data['responses'])
-                    aggregates.append({
-                        'year': year,
-                        'account_domain': domain,
-                        'company_name': data['company_name'],
-                        'question_short_form': question,
-                        'respondent_count': len(data['respondents']),
-                        'respondents': '; '.join(sorted(data['respondents'])),
-                        'response_count': stats.count,
-                        'mean': round(stats.mean, 2),
-                        'median': round(stats.median, 2),
-                        'min': stats.min_val,
-                        'max': stats.max_val
-                    })
-
-        print(f"  ✓ Created {len(aggregates)} account aggregates\n")
-        return sorted(aggregates, key=lambda x: (x['year'], x['company_name'], x['question_short_form']))
-
     def calculate_correlations(self) -> List[Dict]:
-        """Calculate correlations between numeric questions for latest year only"""
+        """Calculate two types of correlations:
+        1. Between answers for all questions and all respondents (current year)
+        2. Between annual deltas for returning respondents
+        """
         print("Calculating correlations...")
 
         correlations = []
 
-        # Get all numeric questions
-        numeric_questions = set(
-            r.question_short_form for r in self.normalized_responses if r.is_numeric
-        )
-
-        # Get latest year only
-        years = set(r.year for r in self.normalized_responses)
-        if not years:
+        # Get all years
+        all_years = sorted(set(r.year for r in self.normalized_responses))
+        if len(all_years) < 2:
+            print("  ⚠ Need at least 2 years of data for correlation analysis")
             return correlations
 
-        latest_year = max(years)
-        print(f"  Calculating correlations for latest year: {latest_year}")
+        prev_year = all_years[-2]
+        curr_year = all_years[-1]
 
-        # Overall correlations (no segmentation)
-        response_matrix = defaultdict(dict)
-        for resp in self.normalized_responses:
-            if resp.year == latest_year and resp.is_numeric and resp.answer_numeric is not None:
-                response_matrix[resp.email][resp.question_short_form] = resp.answer_numeric
-
-        correlations.extend(self._calculate_correlations_for_segment(
-            response_matrix, numeric_questions, latest_year, 'Overall', 'All'
+        # Get all numeric questions
+        numeric_questions = sorted(set(
+            r.question_short_form for r in self.normalized_responses if r.is_numeric
         ))
 
-        # Region-based correlations (US, Canada, Rest of the World)
-        region_segments = {
-            'US': 'US',
-            'Canada': 'Canada',
-            'Rest of the World': ['Europe', 'Asia Pacific', 'Latin America', 'Other']
-        }
+        # ============================================================
+        # TYPE 1: Correlations between answers for all questions (current year)
+        # ============================================================
+        print(f"  Calculating correlations for current year ({curr_year}) responses...")
 
-        for segment_name, region_filter in region_segments.items():
-            response_matrix_region = defaultdict(dict)
+        # Build response matrix for current year
+        current_year_matrix = defaultdict(dict)
+        for resp in self.normalized_responses:
+            if resp.year == curr_year and resp.is_numeric and resp.answer_numeric is not None:
+                current_year_matrix[resp.email][resp.question_short_form] = resp.answer_numeric
 
-            for resp in self.normalized_responses:
-                if resp.year == latest_year and resp.is_numeric and resp.answer_numeric is not None:
-                    # Check if region matches
-                    if isinstance(region_filter, str):
-                        if resp.region == region_filter:
-                            response_matrix_region[resp.email][resp.question_short_form] = resp.answer_numeric
-                    else:  # List of regions for "Rest of the World"
-                        if resp.region in region_filter or (resp.region and resp.region not in ['US', 'Canada']):
-                            response_matrix_region[resp.email][resp.question_short_form] = resp.answer_numeric
-
-            if response_matrix_region:
-                correlations.extend(self._calculate_correlations_for_segment(
-                    response_matrix_region, numeric_questions, latest_year, 'Region', segment_name
-                ))
-
-        # Tenure-based correlations (>4 years vs <4 years)
-        tenure_segments = {
-            '>4 years': lambda t: self._parse_tenure(t) > 4,
-            '≤4 years': lambda t: 0 < self._parse_tenure(t) <= 4
-        }
-
-        for segment_name, tenure_filter in tenure_segments.items():
-            response_matrix_tenure = defaultdict(dict)
-
-            for resp in self.normalized_responses:
-                if resp.year == latest_year and resp.is_numeric and resp.answer_numeric is not None:
-                    if tenure_filter(resp.tenure_years):
-                        response_matrix_tenure[resp.email][resp.question_short_form] = resp.answer_numeric
-
-            if response_matrix_tenure:
-                correlations.extend(self._calculate_correlations_for_segment(
-                    response_matrix_tenure, numeric_questions, latest_year, 'Tenure', segment_name
-                ))
-
-        print(f"  ✓ Calculated {len(correlations)} correlations\n")
-        return sorted(correlations, key=lambda x: (x['segment_type'], x['segment_value'], abs(x['correlation'])), reverse=True)
-
-    def _parse_tenure(self, tenure_str: str) -> float:
-        """Parse tenure string to float"""
-        if not tenure_str:
-            return 0.0
-        try:
-            return float(tenure_str)
-        except ValueError:
-            return 0.0
-
-    def _calculate_correlations_for_segment(
-        self,
-        response_matrix: Dict,
-        numeric_questions: Set[str],
-        year: int,
-        segment_type: str,
-        segment_value: str
-    ) -> List[Dict]:
-        """Calculate pairwise correlations for a given segment"""
-        correlations = []
-        question_list = sorted(numeric_questions)
-
-        for i, q1 in enumerate(question_list):
-            for q2 in question_list[i+1:]:
-                # Get paired values
+        # Calculate pairwise correlations for current year
+        for i, q1 in enumerate(numeric_questions):
+            for q2 in numeric_questions[i+1:]:
                 pairs = []
-                for email, answers in response_matrix.items():
+                for email, answers in current_year_matrix.items():
                     if q1 in answers and q2 in answers:
                         pairs.append((answers[q1], answers[q2]))
 
-                if len(pairs) >= Thresholds.MIN_CORRELATION_PAIRS:  # Need minimum pairs for meaningful correlation
+                if len(pairs) >= Thresholds.MIN_CORRELATION_PAIRS:
                     values1 = [p[0] for p in pairs]
                     values2 = [p[1] for p in pairs]
 
-                    # Calculate Pearson correlation
                     corr = self.pearson_correlation(values1, values2)
 
-                    # Only include Strong correlations
                     if corr is not None and abs(corr) >= Thresholds.STRONG_CORRELATION:
                         correlations.append({
-                            'year': year,
-                            'segment_type': segment_type,
-                            'segment_value': segment_value,
+                            'type': 'Current Year Responses',
+                            'year': curr_year,
                             'question_1': q1,
                             'question_2': q2,
                             'correlation': round(corr, 3),
                             'n_pairs': len(pairs),
-                            'interpretation': 'Strong'
+                            'interpretation': self.interpret_correlation(corr)
                         })
 
-        return correlations
+        # ============================================================
+        # TYPE 2: Correlations between YoY deltas for returning respondents
+        # ============================================================
+        print(f"  Calculating correlations for YoY deltas...")
+
+        # Identify returning respondents
+        prev_emails = set(r.email for r in self.normalized_responses if r.year == prev_year)
+        curr_emails = set(r.email for r in self.normalized_responses if r.year == curr_year)
+        returning_emails = prev_emails & curr_emails
+
+        # Build delta matrix for returning respondents
+        delta_matrix = defaultdict(dict)  # email -> {question: delta}
+
+        for email in returning_emails:
+            for question in numeric_questions:
+                # Get prev and curr values
+                prev_val = None
+                curr_val = None
+
+                for resp in self.normalized_responses:
+                    if resp.email == email and resp.question_short_form == question and resp.is_numeric:
+                        if resp.year == prev_year:
+                            prev_val = resp.answer_numeric
+                        elif resp.year == curr_year:
+                            curr_val = resp.answer_numeric
+
+                # Calculate delta if both years have data
+                if prev_val is not None and curr_val is not None:
+                    delta_matrix[email][question] = curr_val - prev_val
+
+        # Calculate pairwise correlations for deltas
+        for i, q1 in enumerate(numeric_questions):
+            for q2 in numeric_questions[i+1:]:
+                pairs = []
+                for email, deltas in delta_matrix.items():
+                    if q1 in deltas and q2 in deltas:
+                        pairs.append((deltas[q1], deltas[q2]))
+
+                if len(pairs) >= Thresholds.MIN_CORRELATION_PAIRS:
+                    values1 = [p[0] for p in pairs]
+                    values2 = [p[1] for p in pairs]
+
+                    corr = self.pearson_correlation(values1, values2)
+
+                    if corr is not None and abs(corr) >= Thresholds.STRONG_CORRELATION:
+                        correlations.append({
+                            'type': 'YoY Delta',
+                            'year': f'{prev_year}-{curr_year}',
+                            'question_1': q1,
+                            'question_2': q2,
+                            'correlation': round(corr, 3),
+                            'n_pairs': len(pairs),
+                            'interpretation': self.interpret_correlation(corr)
+                        })
+
+        print(f"  ✓ Calculated {len(correlations)} correlations\n")
+        return sorted(correlations, key=lambda x: (x['type'], abs(x['correlation'])), reverse=True)
 
     def pearson_correlation(self, x: List[float], y: List[float]) -> Optional[float]:
         """Calculate Pearson correlation coefficient"""
@@ -959,550 +563,18 @@ class SurveyAnalyzer:
         else:
             return 'Very Weak'
 
-    def sanitize_filename(self, company_name: str) -> str:
-        """Sanitize company name for use as filename"""
-        # Replace spaces and special characters with underscores
-        sanitized = re.sub(r'[^\w\s-]', '', company_name)
-        sanitized = re.sub(r'[\s]+', '_', sanitized)
-        return sanitized.strip('_')
-
-    def generate_account_reports(self) -> None:
-        """Generate one CSV file per customer account with individual analysis"""
-        print("Generating per-account reports...")
-
-        # Get all years
-        all_years = sorted(set(r.year for r in self.normalized_responses))
-        if len(all_years) < 2:
-            print("  ⚠ Need at least 2 years of data for account reports")
-            return
-
-        prev_year = all_years[-2]
-        curr_year = all_years[-1]
-
-        # Create accounts subdirectory
-        accounts_dir = self.output_dir / Paths.ACCOUNTS
-        accounts_dir.mkdir(parents=True, exist_ok=True)
-
-        # Group responses by company
-        company_responses = defaultdict(list)
-        for resp in self.normalized_responses:
-            if resp.company_name:  # Only include responses with matched companies
-                company_responses[resp.company_name].append(resp)
-
-        # Generate a report for each company (only if they have current year responses)
-        reports_generated = 0
-        for company_name, responses in sorted(company_responses.items()):
-            # Check if this company has any responses in the current year
-            has_current_year_responses = any(r.year == curr_year for r in responses)
-
-            if has_current_year_responses:
-                self._write_account_report(company_name, responses, prev_year, curr_year, accounts_dir)
-                reports_generated += 1
-
-        print(f"  ✓ Generated {reports_generated} account reports in accounts/\n")
-
-    def _write_account_report(self, company_name: str, responses: List[NormalizedResponse],
-                              prev_year: int, curr_year: int, accounts_dir: Path) -> None:
-        """Write a single account report CSV file"""
-        filename = self.sanitize_filename(company_name) + '.csv'
-        file_path = accounts_dir / filename
-
-        with open(file_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-
-            # Top-level: Responses table
-            self._write_responses_section(writer, responses, prev_year, curr_year)
-
-            # Add blank row between sections
-            writer.writerow([])
-
-            # Section 1: YoY Changes
-            self._write_yoy_changes_section(writer, responses, prev_year, curr_year)
-
-            # Add blank row between sections
-            writer.writerow([])
-
-            # Section 2: NPS Status and Transitions
-            self._write_nps_section(writer, responses, prev_year, curr_year)
-
-            # Add blank row between sections
-            writer.writerow([])
-
-            # Section 3: CSAT Status
-            self._write_csat_section(writer, responses, curr_year, prev_year)
-
-            # Add blank row between sections
-            writer.writerow([])
-
-            # Section 4: Open Answers
-            self._write_open_answers_section(writer, responses, curr_year)
-
-        print(f"  ✓ Wrote accounts/{filename}")
-
-    def _write_responses_section(self, writer, responses: List[NormalizedResponse],
-                                 prev_year: int, curr_year: int) -> None:
-        """Write RESPONSES section showing all responses for all respondents"""
-        writer.writerow([SectionHeaders.RESPONSES])
-
-        # Collect all questions across all respondents
-        all_questions = set()
-        respondent_data = {}
-
-        for resp in responses:
-            if resp.is_numeric and resp.year == curr_year:
-                # Store respondent info and answers
-                if resp.email not in respondent_data:
-                    respondent_data[resp.email] = {
-                        'answers': {}
-                    }
-
-                respondent_data[resp.email]['answers'][resp.question_short_form] = resp.answer_numeric
-                all_questions.add(resp.question_short_form)
-
-        if not respondent_data:
-            writer.writerow(['No responses found'])
-            return
-
-        # Sort questions for consistent column order
-        sorted_questions = sorted(all_questions)
-
-        # Write header
-        header = ['Email'] + sorted_questions
-        writer.writerow(header)
-
-        # Write data rows
-        for email in sorted(respondent_data.keys()):
-            data = respondent_data[email]
-            row = [email]
-
-            # Add answer for each question (or empty if not answered)
-            for question in sorted_questions:
-                row.append(data['answers'].get(question, ''))
-
-            writer.writerow(row)
-
-    def _write_new_submissions_section(self, writer, responses: List[NormalizedResponse],
-                                       prev_year: int, curr_year: int) -> None:
-        """Write New Submissions section with questions as columns"""
-        writer.writerow(['SECTION 1: New Submissions'])
-        writer.writerow(['First-time respondents (not in previous year)'])
-        writer.writerow([])
-
-        # Identify emails in each year
-        prev_emails = set(r.email for r in responses if r.year == prev_year)
-        curr_emails = set(r.email for r in responses if r.year == curr_year)
-        new_emails = curr_emails - prev_emails
-
-        if not new_emails:
-            writer.writerow(['No new submissions found'])
-            return
-
-        # Collect all questions across all new respondents
-        all_questions = set()
-        respondent_data = {}
-
-        for email in new_emails:
-            # Get all numeric responses for this person
-            person_responses = [r for r in responses
-                              if r.email == email and r.year == curr_year and r.is_numeric]
-
-            if not person_responses:
-                continue
-
-            # Calculate individual baseline (std dev of their answers)
-            numeric_values = [r.answer_numeric for r in person_responses]
-            individual_baseline = statistics.stdev(numeric_values) if len(numeric_values) > 1 else 0.0
-            mean_value = statistics.mean(numeric_values) if numeric_values else 0.0
-
-            # Store respondent info and answers
-            answer_map = {r.question_short_form: r.answer_numeric for r in person_responses}
-            all_questions.update(answer_map.keys())
-
-            # Count low scores (<8)
-            low_score_count = sum(1 for v in numeric_values if v < 8)
-
-            respondent_data[email] = {
-                'first_name': person_responses[0].first_name,
-                'last_name': person_responses[0].last_name,
-                'baseline': individual_baseline,
-                'mean': mean_value,
-                'answers': answer_map,
-                'low_score_count': low_score_count,
-                'lowest_score': min(numeric_values),
-                'highest_score': max(numeric_values)
-            }
-
-        if not respondent_data:
-            writer.writerow(['No new submissions with numeric responses found'])
-            return
-
-        # Sort questions for consistent column order
-        sorted_questions = sorted(all_questions)
-
-        # Write header
-        header = ['Email', 'First Name', 'Last Name', 'Individual Baseline (Std Dev)',
-                 'Lowest Score', 'Highest Score', 'Count Scores <8'] + sorted_questions
-        writer.writerow(header)
-
-        # Write data rows
-        for email in sorted(respondent_data.keys()):
-            data = respondent_data[email]
-            row = [
-                email,
-                data['first_name'],
-                data['last_name'],
-                round(data['baseline'], 2),
-                data['lowest_score'],
-                data['highest_score'],
-                data['low_score_count']
-            ]
-
-            # Add answer for each question (or empty if not answered)
-            for question in sorted_questions:
-                row.append(data['answers'].get(question, ''))
-
-            writer.writerow(row)
-
-    def _write_yoy_changes_section(self, writer, responses: List[NormalizedResponse],
-                                   prev_year: int, curr_year: int) -> None:
-        """Write YoY Changes section - only showing significant changes"""
-        writer.writerow([SectionHeaders.SIGNIFICANT_CHANGES])
-
-        # Identify returning respondents
-        prev_emails = set(r.email for r in responses if r.year == prev_year)
-        curr_emails = set(r.email for r in responses if r.year == curr_year)
-        returning_emails = prev_emails & curr_emails
-
-        if not returning_emails:
-            writer.writerow(['No returning respondents found'])
-            return
-
-        # Build response map: (email, question) -> {year: value}
-        response_map = defaultdict(dict)
-        for resp in responses:
-            if resp.is_numeric and resp.email in returning_emails:
-                key = (resp.email, resp.question_short_form, resp.question_group)
-                response_map[key][resp.year] = resp.answer_numeric
-
-        # Calculate deltas grouped by question group
-        deltas_by_group = defaultdict(list)
-        delta_records = []
-
-        for (email, question, group), year_values in response_map.items():
-            if prev_year in year_values and curr_year in year_values:
-                delta = year_values[curr_year] - year_values[prev_year]
-                deltas_by_group[group].append(delta)
-
-                delta_records.append({
-                    'email': email,
-                    'question': question,
-                    'group': group,
-                    'prev_value': year_values[prev_year],
-                    'curr_value': year_values[curr_year],
-                    'delta': delta
-                })
-
-        # Calculate baseline (std dev) for each question group
-        group_baselines = {}
-        for group, deltas in deltas_by_group.items():
-            if len(deltas) > 1:
-                group_baselines[group] = statistics.stdev(deltas)
-            else:
-                group_baselines[group] = 0.0
-
-        # Filter records to only include changes where abs(delta) > threshold
-        significant_records = []
-        for record in delta_records:
-            # Only include if absolute delta is greater than threshold
-            if abs(record['delta']) > Thresholds.SIGNIFICANT_DELTA:
-                significant_records.append(record)
-
-        if not significant_records:
-            writer.writerow(['No significant changes found'])
-            return
-
-        # Header
-        writer.writerow(['Email', 'Question',
-                        f'{prev_year} Value', f'{curr_year} Value'])
-
-        # Write significant delta records sorted by email, then question
-        for record in sorted(significant_records, key=lambda x: (x['email'], x['question'])):
-            writer.writerow([
-                record['email'],
-                record['question'],
-                record['prev_value'],
-                record['curr_value']
-            ])
-
-    def _write_nps_section(self, writer, responses: List[NormalizedResponse],
-                          prev_year: int, curr_year: int) -> None:
-        """Write NPS Status and Transitions section"""
-        writer.writerow([SectionHeaders.NPS])
-
-        # Find NPS question
-        nps_question = QuestionLabels.NPS
-
-        # Check if this question exists in our questions metadata
-        if nps_question not in self.questions:
-            writer.writerow(['No NPS question (Rating) found in metadata'])
-            return
-
-        # Get NPS responses
-        nps_responses = [r for r in responses if r.question_short_form == nps_question and r.is_numeric]
-
-        if not nps_responses:
-            writer.writerow(['No NPS responses found'])
-            return
-
-        # Build NPS map: email -> {year: score}
-        nps_map = defaultdict(dict)
-
-        for resp in nps_responses:
-            nps_map[resp.email][resp.year] = resp.answer_numeric
-
-        # Header
-        writer.writerow(['Email',
-                        f'{prev_year} NPS Score',
-                        f'{curr_year} NPS Score'])
-
-        # Write NPS data - ordered by email
-        for email in sorted(nps_map.keys()):
-            prev_score = nps_map[email].get(prev_year, None)
-            curr_score = nps_map[email].get(curr_year, None)
-
-            writer.writerow([
-                email,
-                prev_score if prev_score is not None else 'N/A',
-                curr_score if curr_score is not None else 'N/A'
-            ])
-
-    def _write_csat_section(self, writer, responses: List[NormalizedResponse],
-                           curr_year: int, prev_year: int) -> None:
-        """Write CSAT Status section with YoY transitions"""
-        writer.writerow([SectionHeaders.CSAT])
-
-        # Use CSAT question label
-        csat_question = QuestionLabels.CSAT
-
-        # Check if this question exists in our questions metadata
-        if csat_question not in self.questions:
-            writer.writerow(['No CSAT question (Customer Satisfaction Rating) found in metadata'])
-            return
-
-        # Get CSAT responses for both years
-        csat_responses = [r for r in responses
-                         if r.question_short_form == csat_question
-                         and r.is_numeric]
-
-        if not csat_responses:
-            writer.writerow(['No CSAT responses found'])
-            return
-
-        # Build CSAT map: email -> {year: score}
-        csat_map = defaultdict(dict)
-
-        for resp in csat_responses:
-            csat_map[resp.email][resp.year] = resp.answer_numeric
-
-        # Header
-        writer.writerow(['Email',
-                        f'{prev_year} CSAT Score',
-                        f'{curr_year} CSAT Score'])
-
-        # Write CSAT data - ordered by email
-        for email in sorted(csat_map.keys()):
-            prev_score = csat_map[email].get(prev_year, None)
-            curr_score = csat_map[email].get(curr_year, None)
-
-            writer.writerow([
-                email,
-                prev_score if prev_score is not None else 'N/A',
-                curr_score if curr_score is not None else 'N/A'
-            ])
-
-    def _write_open_answers_section(self, writer, responses: List[NormalizedResponse],
-                                    curr_year: int) -> None:
-        """Write Open Answers section"""
-        writer.writerow([SectionHeaders.OPEN_ANSWERS])
-
-        # Get all text (non-numeric) responses for current year
-        text_responses = defaultdict(lambda: defaultdict(str))
-
-        for resp in responses:
-            if resp.year == curr_year and not resp.is_numeric:
-                text_responses[resp.email][resp.question_short_form] = resp.answer_raw
-
-        if not text_responses:
-            writer.writerow(['No open-ended responses found'])
-            return
-
-        # Identify available open-ended question columns
-        all_text_questions = set()
-        for email_responses in text_responses.values():
-            all_text_questions.update(email_responses.keys())
-
-        # Header - Email, then all text question columns
-        header = ['Email'] + sorted(all_text_questions)
-        writer.writerow(header)
-
-        # Write open answer data
-        for email in sorted(text_responses.keys()):
-            row = [email]
-
-            # Add each text question's answer
-            for question in sorted(all_text_questions):
-                row.append(text_responses[email].get(question, ''))
-
-            writer.writerow(row)
-
     def generate_outputs(self) -> None:
-        """Generate all output CSV files"""
+        """Generate correlation analysis output"""
         print("Generating output files...")
 
         # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # 1. Question aggregates
-        question_aggs = self.aggregate_by_question()
-        self._write_question_aggregates(question_aggs)
-
-        # 2. Question group aggregates
-        group_aggs = self.aggregate_by_question_group()
-        self._write_question_group_aggregates(group_aggs)
-
-        # 3. Correlations
+        # Calculate and write correlations
         correlations = self.calculate_correlations()
         self._write_correlations(correlations)
 
-        # 4. Per-account reports with individual analysis
-        self.generate_account_reports()
-
-        # 5. Unmatched domains (only if there are unmatched domains)
-        if self.unmatched_domains:
-            self._write_unmatched_domains()
-
-        # 6. Unknown questions (only if there are unknown questions)
-        if self.unknown_questions:
-            self._write_unknown_questions()
-
         print(f"\n✓ All output files generated in: {self.output_dir}\n")
-
-    def _write_normalized_responses(self) -> None:
-        """Write normalized_responses.csv"""
-        file_path = self.output_dir / 'normalized_responses.csv'
-
-        with open(file_path, 'w', newline='', encoding='utf-8') as f:
-            fieldnames = [
-                'year', 'record_id', 'email', 'first_name', 'last_name',
-                'respondent_domain', 'account_domain', 'company_name', 'region',
-                'tenure_years', 'survey_type', 'question_short_form', 'question_group',
-                'original_question', 'answer_raw', 'answer_numeric', 'is_numeric'
-            ]
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-
-            for resp in self.normalized_responses:
-                writer.writerow({
-                    'year': resp.year,
-                    'record_id': resp.record_id,
-                    'email': resp.email,
-                    'first_name': resp.first_name,
-                    'last_name': resp.last_name,
-                    'respondent_domain': resp.respondent_domain,
-                    'account_domain': resp.account_domain,
-                    'company_name': resp.company_name,
-                    'region': resp.region,
-                    'tenure_years': resp.tenure_years,
-                    'survey_type': resp.survey_type,
-                    'question_short_form': resp.question_short_form,
-                    'question_group': resp.question_group,
-                    'original_question': resp.original_question,
-                    'answer_raw': resp.answer_raw,
-                    'answer_numeric': resp.answer_numeric if resp.is_numeric else '',
-                    'is_numeric': resp.is_numeric
-                })
-
-        print(f"  ✓ Wrote {file_path.name}")
-
-    def _write_yoy_deltas(self, deltas: List[Dict]) -> None:
-        """Write yoy_deltas.csv"""
-        file_path = self.output_dir / 'yoy_deltas.csv'
-
-        with open(file_path, 'w', newline='', encoding='utf-8') as f:
-            fieldnames = [
-                'email', 'company_name', 'question_short_form', 'question_group',
-                'previous_year', 'previous_value', 'current_year', 'current_value',
-                'delta', 'delta_pct'
-            ]
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(deltas)
-
-        print(f"  ✓ Wrote {file_path.name}")
-
-    def _write_question_aggregates(self, aggregates: List[Dict]) -> None:
-        """Write question_aggregates.csv"""
-        file_path = self.output_dir / 'question_aggregates.csv'
-
-        with open(file_path, 'w', newline='', encoding='utf-8') as f:
-            fieldnames = [
-                'year', 'question_short_form', 'question_group',
-                '2024_response_count', '2024_mean', '2024_median', '2024_std_dev',
-                '2025_response_count', '2025_mean', '2025_median', '2025_std_dev',
-                '2025_delta', '2025_std_dev_group_deltas', 'significant_change'
-            ]
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(aggregates)
-
-        print(f"  ✓ Wrote {file_path.name}")
-
-    def _write_question_group_aggregates(self, aggregates: List[Dict]) -> None:
-        """Write question_group_aggregates.csv"""
-        file_path = self.output_dir / 'question_group_aggregates.csv'
-
-        with open(file_path, 'w', newline='', encoding='utf-8') as f:
-            fieldnames = [
-                'year', 'question_group', 'survey_type',
-                '2024_response_count', '2024_mean', '2024_median', '2024_std_dev',
-                '2025_response_count', '2025_mean', '2025_median', '2025_std_dev',
-                '2025_delta', '2025_std_dev_survey_type_deltas', 'significant_change'
-            ]
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(aggregates)
-
-        print(f"  ✓ Wrote {file_path.name}")
-
-    def _write_segment_aggregates(self, aggregates: List[Dict]) -> None:
-        """Write segment_aggregates.csv"""
-        file_path = self.output_dir / 'segment_aggregates.csv'
-
-        with open(file_path, 'w', newline='', encoding='utf-8') as f:
-            fieldnames = [
-                'year', 'segment_type', 'segment_value', 'question_short_form',
-                'response_count', 'mean', 'median'
-            ]
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(aggregates)
-
-        print(f"  ✓ Wrote {file_path.name}")
-
-    def _write_account_aggregates(self, aggregates: List[Dict]) -> None:
-        """Write account_aggregates.csv"""
-        file_path = self.output_dir / 'account_aggregates.csv'
-
-        with open(file_path, 'w', newline='', encoding='utf-8') as f:
-            fieldnames = [
-                'year', 'account_domain', 'company_name', 'question_short_form',
-                'respondent_count', 'respondents', 'response_count', 'mean', 'median', 'min', 'max'
-            ]
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(aggregates)
-
-        print(f"  ✓ Wrote {file_path.name}")
 
     def _write_correlations(self, correlations: List[Dict]) -> None:
         """Write correlations.csv"""
@@ -1510,65 +582,12 @@ class SurveyAnalyzer:
 
         with open(file_path, 'w', newline='', encoding='utf-8') as f:
             fieldnames = [
-                'year', 'segment_type', 'segment_value', 'question_1', 'question_2',
+                'type', 'year', 'question_1', 'question_2',
                 'correlation', 'n_pairs', 'interpretation'
             ]
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(correlations)
-
-        print(f"  ✓ Wrote {file_path.name}")
-
-    def _write_unmatched_domains(self) -> None:
-        """Write unmatched_domains.csv with full customer details"""
-        file_path = self.output_dir / 'unmatched_domains.csv'
-
-        with open(file_path, 'w', newline='', encoding='utf-8') as f:
-            fieldnames = ['email', 'first_name', 'last_name', 'domain', 'response_count']
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-
-            # Collect unique customers with unmatched domains
-            unmatched_customers = defaultdict(lambda: {'email': '', 'first_name': '', 'last_name': '', 'domain': '', 'count': 0})
-
-            for resp in self.normalized_responses:
-                if resp.respondent_domain in self.unmatched_domains:
-                    key = resp.email
-                    if not unmatched_customers[key]['email']:
-                        unmatched_customers[key]['email'] = resp.email
-                        unmatched_customers[key]['first_name'] = resp.first_name
-                        unmatched_customers[key]['last_name'] = resp.last_name
-                        unmatched_customers[key]['domain'] = resp.respondent_domain
-                    unmatched_customers[key]['count'] += 1
-
-            # Write sorted by email
-            for customer in sorted(unmatched_customers.values(), key=lambda x: x['email']):
-                writer.writerow({
-                    'email': customer['email'],
-                    'first_name': customer['first_name'],
-                    'last_name': customer['last_name'],
-                    'domain': customer['domain'],
-                    'response_count': customer['count']
-                })
-
-        print(f"  ✓ Wrote {file_path.name}")
-
-    def _write_unknown_questions(self) -> None:
-        """Write unknown_questions.csv"""
-        file_path = self.output_dir / 'unknown_questions.csv'
-
-        with open(file_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow(['question_column', 'occurrences'])
-
-            # Count occurrences
-            question_counts = defaultdict(int)
-            for resp in self.normalized_responses:
-                if resp.question_short_form in self.unknown_questions:
-                    question_counts[resp.question_short_form] += 1
-
-            for question in sorted(self.unknown_questions):
-                writer.writerow([question, question_counts[question]])
 
         print(f"  ✓ Wrote {file_path.name}")
 
